@@ -1,0 +1,332 @@
+import os
+import uuid
+import pandas as pd
+from flask import Flask, render_template, request, redirect, url_for, session, send_file, jsonify
+from werkzeug.utils import secure_filename
+from model_utils import perform_eda, detect_target_and_type, train_models, get_model_metrics, allowed_file
+from joblib import load, dump
+
+UPLOAD_FOLDER = 'uploads'
+ALLOWED_EXTENSIONS = {'csv', 'xlsx', 'xls'}
+
+app = Flask(__name__)
+app.secret_key = 'your_secret_key_here'
+app.config['UPLOAD_FOLDER'] = 'uploads'
+app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max file size
+
+# Configure session settings for better persistence
+app.config['SESSION_PERMANENT'] = True
+app.config['SESSION_TYPE'] = 'filesystem'
+app.config['PERMANENT_SESSION_LIFETIME'] = 3600  # 1 hour
+app.config['SESSION_FILE_DIR'] = os.path.join(os.getcwd(), 'flask_session')
+app.config['SESSION_FILE_THRESHOLD'] = 500
+
+# Ensure uploads directory exists
+os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+
+# Ensure session directory exists
+os.makedirs(app.config['SESSION_FILE_DIR'], exist_ok=True)
+
+@app.route('/', methods=['GET', 'POST'])
+def index():
+    """Main page: handles file upload and initial EDA."""
+    if request.method == 'POST':
+        print("=== FILE UPLOAD STARTED ===")
+        
+        # Clear all previous session data when new file is uploaded
+        session.clear()
+        print("Previous session data cleared for new upload")
+        
+        if 'dataset' not in request.files:
+            print("ERROR: No file uploaded")
+            return render_template('index.html', error="No file uploaded.")
+        file = request.files['dataset']
+        print(f"Uploaded file: {file.filename}")
+        if not file.filename or not allowed_file(file.filename):
+            print(f"ERROR: Unsupported file format: {file.filename}")
+            return render_template('index.html', error="Unsupported file format.")
+
+        filename = f"{uuid.uuid4().hex}_{secure_filename(file.filename)}"
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        file.save(filepath)
+        session['filepath'] = filepath
+        print(f"File saved to: {filepath}")
+
+        try:
+            df = pd.read_csv(filepath) if filename.endswith('.csv') else pd.read_excel(filepath)
+            print(f"Data loaded: {df.shape}")
+            
+            # Store basic file info in session for later EDA processing
+            session['file_shape'] = df.shape
+            session['file_columns'] = list(df.columns)
+            
+            # Store data preview (first few rows) for frontend display
+            preview_data = df.head(3).to_dict('records')  # First 3 rows as list of dicts
+            session['data_preview'] = preview_data
+            print(f"File info stored in session: {df.shape} with columns: {list(df.columns)[:5]}...")
+        except Exception as e:
+            print(f"ERROR: Failed to read file: {str(e)}")
+            return render_template('index.html', error="Failed to read the file. Ensure it is a valid CSV or Excel file.")
+
+        print("=== FILE UPLOAD COMPLETED ===")
+
+        # Return to upload section with file preview, don't auto-process EDA
+        return render_template('index.html', file_uploaded=True, 
+                             file_name=file.filename, 
+                             file_shape=df.shape,
+                             current_step='upload')
+
+    return render_template('index.html', current_step='upload')
+
+@app.route('/process_eda', methods=['POST'])
+def process_eda():
+    """Process EDA analysis when user requests it."""
+    print("=== EDA PROCESSING STARTED ===")
+    
+    # Get uploaded file from session
+    filepath = session.get('filepath')
+    print(f"Processing EDA for filepath: {filepath}")
+    
+    if not filepath or not os.path.exists(filepath):
+        print("ERROR: No uploaded file found for EDA processing.")
+        print("Session filepath:", session.get('filepath'))
+        print("Available session keys:", list(session.keys()))
+        return redirect(url_for('index'))
+    
+    # Clear any previous EDA/training data for new analysis
+    for key in ['eda', 'target', 'ptype', 'history', 'best_model_name', 'metrics', 'feature_importance', 'all_results']:
+        session.pop(key, None)
+    print("Previous EDA/training data cleared")
+    
+    try:
+        # Load from uploaded file
+        df = pd.read_csv(filepath) if filepath.endswith('.csv') else pd.read_excel(filepath)
+        print(f"Data loaded for EDA: {df.shape}")
+        
+        # Perform EDA analysis
+        eda = perform_eda(df)
+        target, ptype = detect_target_and_type(df)
+        session['target'], session['ptype'] = target, ptype
+        session['columns'] = list(df.columns)
+        session['eda'] = eda  # Store EDA for AJAX
+        print(f"EDA completed. Target: {target}, Type: {ptype}")
+        print(f"EDA stats keys: {list(eda.keys())}")
+        print("=== EDA PROCESSING COMPLETED ===")
+
+        # Return EDA results
+        return render_template('index.html', eda=eda, choose_target=True, 
+                             columns=df.columns, default_target=target, 
+                             default_ptype=ptype, current_step='eda')
+    except Exception as e:
+        print(f"ERROR in EDA processing: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return redirect(url_for('index'))
+
+@app.route('/train', methods=['POST'])
+def train():
+    """Train models and store results for comparison."""
+    print("=== TRAINING STARTED ===")
+    
+    # Get uploaded file from session
+    filepath = session.get('filepath')
+    print(f"Filepath: {filepath}")
+    print(f"Session keys available: {list(session.keys())}")
+    
+    if not filepath or not os.path.exists(filepath):
+        print("ERROR: No uploaded file found. Please upload a dataset first.")
+        print("Session filepath:", session.get('filepath'))
+        return redirect(url_for('index'))
+
+    target = request.form['target']
+    ptype = request.form['ptype']
+    split_ratio = float(request.form.get('split', 0.8))
+    
+    print(f"Training config: target={target}, ptype={ptype}, split={split_ratio}")
+    print(f"Using file: {filepath}")
+
+    try:
+        # Load from uploaded file
+        df = pd.read_csv(filepath) if filepath.endswith('.csv') else pd.read_excel(filepath)
+        print(f"Data loaded from uploaded file: {df.shape}")
+        print(f"Columns: {list(df.columns)}")
+        print(f"Target column '{target}' exists: {target in df.columns}")
+        
+        if target not in df.columns:
+            print(f"ERROR: Target column '{target}' not found in data")
+            return redirect(url_for('index'))
+        
+        models, best_model_name, metrics, feature_importance, all_results = train_models(df, target, ptype, split_ratio)
+        print(f"Training completed. Best model: {best_model_name}")
+        print(f"Metrics: {metrics}")
+        print(f"Number of models trained: {len(models)}")
+        
+        # Persist best model
+        model_path = f"{filepath}_bestmodel.joblib"
+        dump(models[best_model_name], model_path)
+        session['model_path'] = model_path
+        session['best_model_name'] = best_model_name
+        session['metrics'] = metrics
+        session['feature_importance'] = feature_importance
+        session['all_results'] = all_results
+        
+        # Clear previous history for this training session and store all results
+        session['history'] = all_results
+        
+        # Force session save
+        session.permanent = True
+        session.modified = True
+        
+        print(f"Session data stored. History length: {len(session.get('history', []))}")
+        print(f"Best model stored: {session.get('best_model_name')}")
+        print(f"Metrics stored: {session.get('metrics')}")
+        print("=== TRAINING COMPLETED ===")
+
+        # Always render all sections, set current_step for JS
+        return render_template('index.html', training_results=True,
+                               best_model=best_model_name,
+                               metrics=metrics,
+                               feature_importance=feature_importance,
+                               all_results=all_results,
+                               columns=list(df.drop(columns=[target]).columns),
+                               current_step='train')
+    except Exception as e:
+        print(f"ERROR in training: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return redirect(url_for('index'))
+
+@app.route('/metrics', methods=['GET'])
+def get_metrics():
+    """AJAX endpoint: returns metrics for best model as JSON."""
+    return jsonify(session.get('metrics', {}))
+
+@app.route('/best_model', methods=['GET'])
+def get_best_model():
+    """AJAX endpoint: returns best model name and details."""
+    best_model_name = session.get('best_model_name', '')
+    metrics = session.get('metrics', {})
+    return jsonify({
+        'name': best_model_name,
+        'metrics': metrics
+    })
+
+@app.route('/feature_importance', methods=['GET'])
+def get_feature_importance():
+    """AJAX endpoint: returns feature importance data."""
+    return jsonify(session.get('feature_importance', {}))
+
+# New: AJAX endpoint for EDA results
+@app.route('/eda', methods=['GET'])
+def get_eda():
+    """AJAX endpoint: returns EDA results as JSON."""
+    eda_data = session.get('eda', {})
+    print(f"EDA endpoint called. Returning: {bool(eda_data)}")
+    if eda_data:
+        print(f"EDA data keys: {list(eda_data.keys())}")
+    return jsonify(eda_data)
+
+# New: AJAX endpoint for data preview
+@app.route('/data_preview', methods=['GET'])
+def get_data_preview():
+    """AJAX endpoint: returns data preview for table display."""
+    preview_data = session.get('data_preview', [])
+    columns = session.get('file_columns', [])
+    filepath = session.get('filepath', 'None')
+    print(f"Data preview requested - Filepath: {filepath}, Columns: {len(columns)}, Rows: {len(preview_data)}")
+    return jsonify({
+        'columns': columns,
+        'data': preview_data,
+        'filepath': filepath  # For debugging
+    })
+
+# New: AJAX endpoint for model comparison (historical)
+@app.route('/model_comparison', methods=['GET'])
+def model_comparison():
+    """AJAX endpoint: returns all trained model metrics for comparison."""
+    return jsonify(session.get('history', []))
+
+@app.route('/debug_session', methods=['GET'])
+def debug_session():
+    """Debug endpoint to check session data."""
+    return jsonify({
+        'session_keys': list(session.keys()),
+        'filepath': session.get('filepath'),
+        'file_columns': session.get('file_columns'),
+        'file_shape': session.get('file_shape'),
+        'best_model_name': session.get('best_model_name'),
+        'metrics': session.get('metrics'),
+        'feature_importance': session.get('feature_importance'),
+        'history': session.get('history'),
+        'all_results': session.get('all_results'),
+        'eda_available': bool(session.get('eda')),
+        'target': session.get('target'),
+        'ptype': session.get('ptype')
+    })
+
+@app.route('/reset_session', methods=['POST'])
+def reset_session():
+    """Reset session for debugging."""
+    session.clear()
+    return jsonify({'message': 'Session cleared successfully'})
+
+@app.route('/download_model')
+def download_model():
+    """Download the best trained model."""
+    model_path = session.get('model_path')
+    return send_file(model_path, as_attachment=True) if model_path else "No model saved."
+
+@app.route('/export_results')
+def export_results():
+    """Export training results as CSV."""
+    try:
+        import csv
+        import io
+        from flask import make_response
+        
+        # Get all results from session
+        all_results = session.get('history', [])
+        best_model = session.get('best_model_name', 'Unknown')
+        
+        if not all_results:
+            return "No training results available for export.", 404
+        
+        # Create CSV content
+        output = io.StringIO()
+        writer = csv.writer(output)
+        
+        # Write header
+        if all_results:
+            metrics_keys = list(all_results[0].get('metrics', {}).keys())
+            header = ['Model', 'Best_Model'] + metrics_keys
+            writer.writerow(header)
+            
+            # Write data
+            for result in all_results:
+                model_name = result.get('model', 'Unknown')
+                is_best = 'Yes' if model_name == best_model else 'No'
+                metrics = result.get('metrics', {})
+                row = [model_name, is_best] + [metrics.get(key, '') for key in metrics_keys]
+                writer.writerow(row)
+        
+        # Create response
+        response = make_response(output.getvalue())
+        response.headers['Content-Type'] = 'text/csv'
+        response.headers['Content-Disposition'] = 'attachment; filename=automl_results.csv'
+        
+        return response
+        
+    except Exception as e:
+        print(f"Error exporting results: {str(e)}")
+        return f"Error exporting results: {str(e)}", 500
+
+# Clean up uploads on shutdown
+import atexit
+@atexit.register
+def cleanup_uploads():
+    """Cleanup uploads folder on shutdown."""
+    import shutil
+    shutil.rmtree(UPLOAD_FOLDER, ignore_errors=True)
+
+if __name__ == "__main__":
+    app.run(debug=True, port=5001)

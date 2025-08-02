@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AutoML Web Application</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="container">ex
+            <div class="navbar-brand">
+                <h2>AutoML Platform</h2>
+            </div>
+            <div class="navbar-nav">
+                <button class="btn btn--outline btn--sm" id="resetBtn">Reset Application</button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Progress Indicator -->
+    <div class="progress-container">
+        <div class="container">
+            <div class="progress-steps">
+                <div class="progress-step active" data-step="upload">
+                    <div class="step-circle">1</div>
+                    <span>Upload Data</span>
+                </div>
+                <div class="progress-step" data-step="eda">
+                    <div class="step-circle">2</div>
+                    <span>EDA Analysis</span>
+                </div>
+                <div class="progress-step" data-step="configure">
+                    <div class="step-circle">3</div>
+                    <span>Configure</span>
+                </div>
+                <div class="progress-step" data-step="train">
+                    <div class="step-circle">4</div>
+                    <span>Train Models</span>
+                </div>
+                <div class="progress-step" data-step="results">
+                    <div class="step-circle">5</div>
+                    <span>Results</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <main class="main-content">
+        <div class="container">
+            <!-- Upload Section -->
+            <div id="uploadSection" class="section active">
+                <div class="section-header">
+                    <h1>Upload Your Dataset</h1>
+                    <p>Upload a CSV or Excel file to get started with automated machine learning analysis.</p>
+                </div>
+                
+                <div class="upload-card card">
+                    <div class="card__body">
+                        <div class="upload-area" id="uploadArea">
+                            <div class="upload-icon">📁</div>
+                            <h3>Drag and drop your file here</h3>
+                            <p>or click to browse files</p>
+                            <p class="upload-hint">Supports CSV and Excel files up to 50MB</p>
+                            <input type="file" id="fileInput" accept=".csv,.xlsx,.xls" style="display: none;">
+                        </div>
+                        
+                        <div id="filePreview" class="file-preview hidden">
+                            <div class="file-info">
+                                <div class="file-icon">📊</div>
+                                <div class="file-details">
+                                    <h4 id="fileName"></h4>
+                                    <p id="fileSize"></p>
+                                    <p id="fileRows"></p>
+                                </div>
+                            </div>
+                            <button class="btn btn--primary" id="analyzeBtn">Analyze Dataset</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Data Preview Table -->
+                <div id="dataPreview" class="data-preview hidden">
+                    <h3>Data Preview</h3>
+                    <div class="table-container">
+                        <table id="previewTable" class="data-table">
+                            <thead id="tableHead"></thead>
+                            <tbody id="tableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- EDA Section -->
+            <div id="edaSection" class="section">
+                <div class="section-header">
+                    <h1>Exploratory Data Analysis</h1>
+                    <p>Comprehensive analysis of your dataset structure and patterns.</p>
+                </div>
+
+                <div class="eda-grid">
+                    <div class="card">
+                        <div class="card__body">
+                            <h3>Dataset Overview</h3>
+                            <div id="datasetStats" class="stats-grid">
+                                <div class="stat-item">
+                                    <span class="stat-label">Rows:</span>
+                                    <span class="stat-value" id="totalRows">-</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-label">Columns:</span>
+                                    <span class="stat-value" id="totalColumns">-</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-label">Numeric:</span>
+                                    <span class="stat-value" id="numericColumns">-</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-label">Categorical:</span>
+                                    <span class="stat-value" id="categoricalColumns">-</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-label">Missing Values:</span>
+                                    <span class="stat-value" id="missingValues">-</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-label">Duplicate Rows:</span>
+                                    <span class="stat-value" id="duplicateRows">-</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card__body">
+                            <h3>Data Quality</h3>
+                            <div style="position: relative; height: 300px;">
+                                <canvas id="qualityChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card__body">
+                            <h3>Column Types Distribution</h3>
+                            <div style="position: relative; height: 300px;">
+                                <canvas id="typesChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card__body">
+                            <h3>Missing Values by Column</h3>
+                            <div id="missingValuesChart" style="position: relative; height: 300px;">
+                                <canvas id="missingChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section-actions">
+                    <button class="btn btn--primary" id="proceedToConfigBtn">Proceed to Configuration</button>
+                </div>
+            </div>
+
+            <!-- Configuration Section -->
+            <div id="configSection" class="section">
+                <div class="section-header">
+                    <h1>Model Configuration</h1>
+                    <p>Configure your machine learning pipeline settings.</p>
+                </div>
+
+                <div class="config-grid">
+                    <div class="card">
+                        <div class="card__body">
+                            <h3>Target Variable Selection</h3>
+                            <div class="form-group">
+                                <label class="form-label">Select Target Column:</label>
+                                <select id="targetSelect" class="form-control">
+                                    <option value="">Choose target variable...</option>
+                                </select>
+                            </div>
+                            <div id="targetPreview" class="target-preview hidden">
+                                <h4>Target Analysis</h4>
+                                <div id="targetStats"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card__body">
+                            <h3>Problem Type</h3>
+                            <div class="form-group">
+                                <label class="form-label">Machine Learning Task:</label>
+                                <select id="problemTypeSelect" class="form-control">
+                                    <option value="">Auto-detect problem type</option>
+                                    <option value="classification">Classification</option>
+                                    <option value="regression">Regression</option>
+                                </select>
+                            </div>
+                            <div id="problemTypeInfo" class="problem-type-info">
+                                <div class="status status--info" id="detectedType">
+                                    Auto-detection will run after target selection
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card__body">
+                            <h3>Training Configuration</h3>
+                            <div class="form-group">
+                                <label class="form-label">Train/Test Split Ratio:</label>
+                                <input type="range" id="splitRatio" min="60" max="90" value="80" class="slider">
+                                <div class="split-display">
+                                    <span>Train: <span id="trainPercent">80</span>%</span>
+                                    <span>Test: <span id="testPercent">20</span>%</span>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Cross-Validation Folds:</label>
+                                <select id="cvFolds" class="form-control">
+                                    <option value="5">5-Fold</option>
+                                    <option value="10">10-Fold</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section-actions">
+                    <button class="btn btn--secondary" id="backToEdaBtn">Back to EDA</button>
+                    <button class="btn btn--primary" id="startTrainingBtn" disabled>Start Training</button>
+                </div>
+            </div>
+
+            <!-- Training Section -->
+            <div id="trainingSection" class="section">
+                <div class="section-header">
+                    <h1>Model Training</h1>
+                    <p>Training multiple machine learning models on your dataset.</p>
+                </div>
+
+                <div class="training-progress">
+                    <div class="card">
+                        <div class="card__body">
+                            <h3>Training Progress</h3>
+                            <div class="progress-bar">
+                                <div class="progress-fill" id="trainingProgress"></div>
+                            </div>
+                            <div class="training-status">
+                                <span id="currentModel">Preparing...</span>
+                                <span id="progressPercent">0%</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="modelsList" class="models-list">
+                    <!-- Models will be dynamically added here -->
+                </div>
+
+                <div class="section-actions hidden" id="trainingActions">
+                    <button class="btn btn--primary" id="viewResultsBtn">View Results</button>
+                </div>
+            </div>
+
+            <!-- Results Section -->
+            <div id="resultsSection" class="section">
+                <div class="section-header">
+                    <h1>Training Results</h1>
+                    <p>Performance metrics and analysis for all trained models.</p>
+                </div>
+
+                <div class="results-summary card">
+                    <div class="card__body">
+                        <h3>Best Performing Model</h3>
+                        <div id="bestModelInfo" class="best-model-info">
+                            <div class="best-model-name"></div>
+                            <div class="best-model-score"></div>
+                        </div>
+                        <button id="testChartsBtn" onclick="window.autoMLApp.testCharts()" style="margin-top: 10px; padding: 8px 16px; background: #1FB8CD; color: white; border: none; border-radius: 4px;">Test Charts</button>
+                    </div>
+                </div>
+
+                <div class="results-grid">
+                    <div class="card">
+                        <div class="card__body">
+                            <h3>Model Performance Comparison</h3>
+                            <div style="position: relative; height: 400px;">
+                                <canvas id="performanceChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card__body">
+                            <h3>Feature Importance</h3>
+                            <div style="position: relative; height: 400px;">
+                                <canvas id="featureImportanceChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="models-comparison">
+                    <h3>Detailed Model Metrics</h3>
+                    <div class="table-container">
+                        <table id="metricsTable" class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Model</th>
+                                    <th>Primary Score</th>
+                                    <th>Training Time</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="metricsTableBody">
+                                <!-- Metrics will be populated here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="section-actions">
+                    <button class="btn btn--secondary" id="backToConfigBtn">Back to Configuration</button>
+                    <button class="btn btn--primary" id="exportResultsBtn">Export Results</button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Loading Modal -->
+    <div id="loadingModal" class="modal hidden">
+        <div class="modal-content">
+            <div class="loading-spinner"></div>
+            <h3 id="loadingText">Processing...</h3>
+        </div>
+    </div>
+
+    <!-- Success Modal -->
+    <div id="successModal" class="modal hidden">
+        <div class="modal-content">
+            <div class="success-icon">✅</div>
+            <h3 id="successText">Operation Completed</h3>
+            <button class="btn btn--primary" id="successModalClose">Continue</button>
+        </div>
+    </div>
+
+    <script src="static/app.js"></script>
+    <script>
+        // Set current step from backend if provided
+        document.addEventListener('DOMContentLoaded', () => {
+            const currentStep = '{{ current_step if current_step else "upload" }}';
+            if (window.autoMLApp) {
+                window.autoMLApp.currentStep = currentStep;
+                window.autoMLApp.navigateToStep(currentStep);
+            }
+        });
+    </script>
+</body>
+</html>
