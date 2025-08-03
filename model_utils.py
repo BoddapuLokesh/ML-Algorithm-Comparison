@@ -3,7 +3,7 @@ import numpy as np
 import time
 import json
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression, LinearRegression
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor, GradientBoostingClassifier, GradientBoostingRegressor
@@ -286,26 +286,64 @@ def train_models(df, target, problem_type, split_ratio):
         print(f"Training data: X shape: {X.shape}, y unique values: {unique_y_count}")
         
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=1-split_ratio, random_state=42)
+        
+        # For very large datasets (>100k samples), provide option to sample for faster training
+        if X_train.shape[0] > 100000:
+            print(f"Large dataset detected ({X_train.shape[0]} samples). Using sampling for faster training.")
+            sample_size = min(50000, X_train.shape[0])  # Sample up to 50k rows
+            sample_indices = np.random.choice(X_train.shape[0], sample_size, replace=False)
+            X_train_sampled = X_train.iloc[sample_indices] if hasattr(X_train, 'iloc') else X_train[sample_indices]
+            y_train_sampled = y_train.iloc[sample_indices] if hasattr(y_train, 'iloc') else y_train[sample_indices]
+            print(f"Training on sampled dataset: {X_train_sampled.shape[0]} samples")
+        else:
+            X_train_sampled = X_train
+            y_train_sampled = y_train
+            
         results = []
         models = {}
 
+        # For large datasets (>50k samples), use optimized configurations
+        is_large_dataset = X_train.shape[0] > 50000
+        
         # Select models based on problem type
         if problem_type == 'regression':
-            model_configs = [
-                ("LinearRegression", LinearRegression()),
-                ("RandomForestRegressor", RandomForestRegressor(random_state=42, n_estimators=10)),
-                ("GradientBoostingRegressor", GradientBoostingRegressor(random_state=42, n_estimators=10)),
-                ("SVR", SVR()),
-                ("DecisionTreeRegressor", DecisionTreeRegressor(random_state=42, max_depth=5))
-            ]
+            if is_large_dataset:
+                # Use linear SVR for large datasets - much faster
+                model_configs = [
+                    ("LinearRegression", LinearRegression()),
+                    ("RandomForestRegressor", RandomForestRegressor(random_state=42, n_estimators=10, max_depth=10)),
+                    ("GradientBoostingRegressor", GradientBoostingRegressor(random_state=42, n_estimators=10, max_depth=3)),
+                    ("LinearSVR", SVR(kernel='linear', C=1.0, max_iter=1000)),
+                    ("DecisionTreeRegressor", DecisionTreeRegressor(random_state=42, max_depth=5))
+                ]
+            else:
+                # Use RBF SVR for smaller datasets
+                model_configs = [
+                    ("LinearRegression", LinearRegression()),
+                    ("RandomForestRegressor", RandomForestRegressor(random_state=42, n_estimators=10)),
+                    ("GradientBoostingRegressor", GradientBoostingRegressor(random_state=42, n_estimators=10)),
+                    ("SVR", SVR(kernel='rbf', C=1.0, gamma='scale')),
+                    ("DecisionTreeRegressor", DecisionTreeRegressor(random_state=42, max_depth=5))
+                ]
         else:
-            model_configs = [
-                ("LogisticRegression", LogisticRegression(max_iter=1000, random_state=42)),
-                ("RandomForestClassifier", RandomForestClassifier(random_state=42, n_estimators=10)),
-                ("GradientBoostingClassifier", GradientBoostingClassifier(random_state=42, n_estimators=10)),
-                ("SVC", SVC(random_state=42, probability=True)),
-                ("DecisionTreeClassifier", DecisionTreeClassifier(random_state=42, max_depth=5))
-            ]
+            if is_large_dataset:
+                # Use linear SVC for large datasets - much faster
+                model_configs = [
+                    ("LogisticRegression", LogisticRegression(max_iter=1000, random_state=42)),
+                    ("RandomForestClassifier", RandomForestClassifier(random_state=42, n_estimators=10, max_depth=10)),
+                    ("GradientBoostingClassifier", GradientBoostingClassifier(random_state=42, n_estimators=10, max_depth=3)),
+                    ("LinearSVC", SVC(kernel='linear', C=1.0, random_state=42, probability=True, max_iter=1000)),
+                    ("DecisionTreeClassifier", DecisionTreeClassifier(random_state=42, max_depth=5))
+                ]
+            else:
+                # Use RBF SVC for smaller datasets
+                model_configs = [
+                    ("LogisticRegression", LogisticRegression(max_iter=1000, random_state=42)),
+                    ("RandomForestClassifier", RandomForestClassifier(random_state=42, n_estimators=10)),
+                    ("GradientBoostingClassifier", GradientBoostingClassifier(random_state=42, n_estimators=10)),
+                    ("SVC", SVC(kernel='rbf', C=1.0, gamma='scale', random_state=42, probability=True)),
+                    ("DecisionTreeClassifier", DecisionTreeClassifier(random_state=42, max_depth=5))
+                ]
 
         best_score = -np.inf
         best_model_name = None
@@ -315,12 +353,39 @@ def train_models(df, target, problem_type, split_ratio):
             try:
                 print(f"Training {name}...")
                 
-                # Track training time
-                start_time = time.time()
-                model.fit(X_train, y_train)
-                training_time = time.time() - start_time
+                # Scale features for SVR/SVC models (they are sensitive to feature scales)
+                if 'SVR' in name or 'SVC' in name:
+                    scaler = StandardScaler()
+                    X_train_scaled = scaler.fit_transform(X_train_sampled)
+                    X_test_scaled = scaler.transform(X_test)
+                    X_train_model = X_train_scaled
+                    X_test_model = X_test_scaled
+                    y_train_model = y_train_sampled
+                else:
+                    X_train_model = X_train_sampled
+                    X_test_model = X_test
+                    y_train_model = y_train_sampled
                 
-                preds = model.predict(X_test)
+                # Track training time with timeout
+                start_time = time.time()
+                
+                # Set timeout based on dataset size
+                timeout = 60 if is_large_dataset else 120  # 1-2 minutes max
+                
+                try:
+                    model.fit(X_train_model, y_train_model)
+                    training_time = time.time() - start_time
+                    
+                    # Skip if training took too long
+                    if training_time > timeout:
+                        print(f"{name} training timeout ({training_time:.1f}s > {timeout}s), skipping...")
+                        continue
+                        
+                except Exception as fit_error:
+                    print(f"Error fitting {name}: {str(fit_error)}")
+                    continue
+                
+                preds = model.predict(X_test_model)
                 
                 if problem_type == 'regression':
                     score = r2_score(y_test, preds)  # Use R² as primary metric
