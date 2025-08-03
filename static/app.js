@@ -13,14 +13,14 @@ class AutoMLApp {
         this.algorithms = {
             classification: [
                 {name: "Logistic Regression", class: "LogisticRegression", params: {random_state: 42}},
-                {name: "Random Forest", class: "RandomForestClassifier", params: {n_estimators: 100, random_state: 42}},
+                {name: "Random Forest", class: "RandomForestClassifier", params: {n_estimators: 10, random_state: 42}},
                 {name: "Gradient Boosting", class: "GradientBoostingClassifier", params: {random_state: 42}},
                 {name: "Support Vector Machine", class: "SVC", params: {random_state: 42, probability: true}},
                 {name: "Decision Tree", class: "DecisionTreeClassifier", params: {random_state: 42}}
             ],
             regression: [
                 {name: "Linear Regression", class: "LinearRegression", params: {}},
-                {name: "Random Forest", class: "RandomForestRegressor", params: {n_estimators: 100, random_state: 42}},
+                {name: "Random Forest", class: "RandomForestRegressor", params: {n_estimators: 10, random_state: 42}},
                 {name: "Gradient Boosting", class: "GradientBoostingRegressor", params: {random_state: 42}},
                 {name: "Support Vector Machine", class: "SVR", params: {}},
                 {name: "Decision Tree", class: "DecisionTreeRegressor", params: {random_state: 42}}
@@ -32,15 +32,28 @@ class AutoMLApp {
         this.init();
     }
     
+    // Utility method to escape HTML to prevent XSS
+    escapeHtml(text) {
+        if (text === null || text === undefined) return 'N/A';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+    
     init() {
         this.setupEventListeners();
         this.updateProgressSteps();
     }
     
     setupEventListeners() {
-        // File upload
+        // File upload - with null checks
         const uploadArea = document.getElementById('uploadArea');
         const fileInput = document.getElementById('fileInput');
+        
+        if (!uploadArea || !fileInput) {
+            console.error('Critical upload elements not found');
+            return;
+        }
         
         uploadArea.addEventListener('click', () => fileInput.click());
         uploadArea.addEventListener('dragover', this.handleDragOver.bind(this));
@@ -49,25 +62,37 @@ class AutoMLApp {
         
         fileInput.addEventListener('change', this.handleFileSelect.bind(this));
         
-        // Navigation buttons
-        document.getElementById('analyzeBtn').addEventListener('click', this.analyzeDataset.bind(this));
-        document.getElementById('proceedToConfigBtn').addEventListener('click', () => this.navigateToStep('config'));
-        document.getElementById('backToEdaBtn').addEventListener('click', () => this.navigateToStep('eda'));
-        document.getElementById('startTrainingBtn').addEventListener('click', this.startTraining.bind(this));
-        document.getElementById('viewResultsBtn').addEventListener('click', () => this.navigateToStep('results'));
-        document.getElementById('backToConfigBtn').addEventListener('click', () => this.navigateToStep('config'));
-        document.getElementById('resetBtn').addEventListener('click', this.resetApplication.bind(this));
+        // Navigation buttons - with null checks
+        const navButtons = [
+            { id: 'analyzeBtn', handler: this.analyzeDataset.bind(this) },
+            { id: 'proceedToConfigBtn', handler: () => this.navigateToStep('config') },
+            { id: 'backToEdaBtn', handler: () => this.navigateToStep('eda') },
+            { id: 'startTrainingBtn', handler: this.startTraining.bind(this) },
+            { id: 'viewResultsBtn', handler: () => this.navigateToStep('results') },
+            { id: 'backToConfigBtn', handler: () => this.navigateToStep('config') },
+            { id: 'resetBtn', handler: this.resetApplication.bind(this) },
+            { id: 'exportResultsBtn', handler: this.exportResults.bind(this) }
+        ];
         
-        // Configuration
-        document.getElementById('targetSelect').addEventListener('change', this.handleTargetSelection.bind(this));
-        document.getElementById('problemTypeSelect').addEventListener('change', this.handleProblemTypeSelection.bind(this));
-        document.getElementById('splitRatio').addEventListener('input', this.updateSplitDisplay.bind(this));
+        navButtons.forEach(({ id, handler }) => {
+            const element = document.getElementById(id);
+            if (element) {
+                element.addEventListener('click', handler);
+            } else {
+                console.warn(`Navigation button ${id} not found`);
+            }
+        });
         
-        // Modal handlers
-        document.getElementById('successModalClose').addEventListener('click', () => this.hideModal('successModal'));
+        // Configuration - with null checks
+        const targetSelect = document.getElementById('targetSelect');
+        const problemTypeSelect = document.getElementById('problemTypeSelect');
+        const splitRatio = document.getElementById('splitRatio');
+        const successModalClose = document.getElementById('successModalClose');
         
-        // Export functionality
-        document.getElementById('exportResultsBtn').addEventListener('click', this.exportResults.bind(this));
+        if (targetSelect) targetSelect.addEventListener('change', this.handleTargetSelection.bind(this));
+        if (problemTypeSelect) problemTypeSelect.addEventListener('change', this.handleProblemTypeSelection.bind(this));
+        if (splitRatio) splitRatio.addEventListener('input', this.updateSplitDisplay.bind(this));
+        if (successModalClose) successModalClose.addEventListener('click', () => this.hideModal('successModal'));
     }
     
     handleDragOver(e) {
@@ -122,55 +147,61 @@ class AutoMLApp {
             method: 'POST',
             body: formData
         })
-        .then(response => response.text())
-        .then(html => {
-            console.log('File uploaded successfully');
-            
-            // Display file preview using backend data
-            this.displayFilePreview(file);
-            
-            // Fetch and display actual data preview
-            setTimeout(() => {
-                this.fetchAndDisplayDataPreview();
-            }, 500); // Small delay to ensure backend processing is complete
-            
-            this.hideModal('loadingModal');
-            
-            // Don't auto-navigate to EDA - wait for user to click "Analyze Dataset" button
-            console.log('File uploaded successfully. Ready for EDA analysis.');
+        .then(response => response.json())
+        .then(result => {
+            if (result.success) {
+                console.log('File uploaded successfully');
+                
+                // Display file preview using backend data
+                this.displayFilePreview(file, result);
+                
+                // Display data preview immediately
+                this.displayActualDataPreview({
+                    columns: result.columns,
+                    data: result.preview_data
+                });
+                
+                // Populate target selection dropdown
+                this.populateTargetSelection(result.columns);
+                
+                this.hideModal('loadingModal');
+                
+                console.log('File uploaded successfully. Ready for EDA analysis.');
+            } else {
+                throw new Error(result.error || 'Upload failed');
+            }
         })
         .catch(error => {
             console.error('Error uploading file:', error);
-            alert('Error uploading file. Please try again.');
+            alert('Error uploading file: ' + error.message);
             this.hideModal('loadingModal');
         });
     }
     
-    displayFilePreview(file) {
-        document.getElementById('uploadArea').style.display = 'none';
-        document.getElementById('filePreview').classList.remove('hidden');
+    displayFilePreview(file, result) {
+        const uploadArea = document.getElementById('uploadArea');
+        const filePreview = document.getElementById('filePreview');
+        const fileName = document.getElementById('fileName');
+        const fileSize = document.getElementById('fileSize');
+        const fileRows = document.getElementById('fileRows');
+        
+        if (!uploadArea || !filePreview || !fileName || !fileSize || !fileRows) {
+            console.error('File preview elements not found');
+            return;
+        }
+        
+        uploadArea.style.display = 'none';
+        filePreview.classList.remove('hidden');
         
         // Update file info
-        document.getElementById('fileName').textContent = file.name;
-        document.getElementById('fileSize').textContent = `Size: ${(file.size / 1024).toFixed(1)} KB`;
+        fileName.textContent = file.name;
+        fileSize.textContent = `Size: ${(file.size / 1024).toFixed(1)} KB`;
         
-        // Get file info from backend EDA data
-        fetch('/eda')
-        .then(response => response.json())
-        .then(eda => {
-            if (eda && eda.stats) {
-                document.getElementById('fileRows').textContent = `Rows: ${eda.stats.rows}`;
-                
-                // Show data preview using actual data from backend
-                this.fetchAndDisplayDataPreview();
-            }
-        })
-        .catch(error => {
-            console.error('Error fetching file info:', error);
-            // Fallback display
-            document.getElementById('fileRows').textContent = 'Rows: Loading...';
-            this.fetchAndDisplayDataPreview(); // Try to fetch preview anyway
-        });
+        if (result && result.file_shape) {
+            fileRows.textContent = `Rows: ${result.file_shape[0]}, Columns: ${result.file_shape[1]}`;
+        } else {
+            fileRows.textContent = 'Rows: Loading...';
+        }
     }
     
     fetchAndDisplayDataPreview() {
@@ -181,7 +212,9 @@ class AutoMLApp {
         })
         .catch(error => {
             console.error('Error fetching data preview:', error);
-            this.displayDataPreviewFromBackend(null); // Fallback
+            // Show error message in preview
+            const tableBody = document.getElementById('tableBody');
+            tableBody.innerHTML = '<tr><td colspan="100%">Error loading data preview</td></tr>';
         });
     }
     
@@ -190,21 +223,26 @@ class AutoMLApp {
         const tableHead = document.getElementById('tableHead');
         const tableBody = document.getElementById('tableBody');
         
-        if (!data || !data.columns || !data.data) {
-            tableBody.innerHTML = '<tr><td colspan="100%">No data preview available</td></tr>';
+        if (!data || !data.columns || !data.data || data.data.length === 0) {
+            tableHead.innerHTML = '<th>No Data</th>';
+            tableBody.innerHTML = '<tr><td>No data preview available</td></tr>';
+            preview.classList.remove('hidden');
             return;
         }
         
-        // Create table header
-        tableHead.innerHTML = data.columns.map(col => `<th>${col}</th>`).join('');
+        // Store data for target analysis
+        this.currentData = data.data;
+        this.columns = data.columns;
         
-        // Create table rows with actual data
-        tableBody.innerHTML = data.data.map(row => 
-            `<tr>${data.columns.map(col => 
-                `<td>${row[col] !== null && row[col] !== undefined ? row[col] : 'N/A'}</td>`
-            ).join('')}</tr>`
-        ).join('');
+        // Create table header - sanitize column names
+        tableHead.innerHTML = data.columns.map(col => `<th>${this.escapeHtml(col)}</th>`).join('');
         
+        // Create table rows - sanitize all data values
+        tableBody.innerHTML = data.data.map(row => {
+            return '<tr>' + data.columns.map(col => `<td>${this.escapeHtml(row[col])}</td>`).join('') + '</tr>';
+        }).join('');
+        
+        // Show data preview
         preview.classList.remove('hidden');
     }
     
@@ -218,8 +256,8 @@ class AutoMLApp {
         // Get column names from backend
         const allColumns = [...(eda.stats.numerics || []), ...(eda.stats.categoricals || [])];
         
-        // Create table header
-        tableHead.innerHTML = allColumns.map(col => `<th>${col}</th>`).join('');
+        // Create table header - sanitize column names
+        tableHead.innerHTML = allColumns.map(col => `<th>${this.escapeHtml(col)}</th>`).join('');
         
         // Create placeholder rows (since we don't have actual row data)
         tableBody.innerHTML = `
@@ -243,16 +281,22 @@ class AutoMLApp {
         
         if (!this.currentData || this.currentData.length === 0) return;
         
+        // Check if first row exists before accessing it
+        if (!this.currentData[0]) {
+            console.error('First data row is missing');
+            return;
+        }
+        
         // Get column names
         const columns = Object.keys(this.currentData[0]);
         
-        // Create table header
-        tableHead.innerHTML = columns.map(col => `<th>${col}</th>`).join('');
+        // Create table header - sanitize column names
+        tableHead.innerHTML = columns.map(col => `<th>${this.escapeHtml(col)}</th>`).join('');
         
-        // Create table body (show first 5 rows)
+        // Create table body (show first 5 rows) - sanitize data values
         const previewRows = this.currentData.slice(0, 5);
         tableBody.innerHTML = previewRows.map(row => 
-            `<tr>${columns.map(col => `<td>${row[col] || 'N/A'}</td>`).join('')}</tr>`
+            `<tr>${columns.map(col => `<td>${this.escapeHtml(row && row[col] !== undefined ? row[col] : 'N/A')}</td>`).join('')}</tr>`
         ).join('');
         
         preview.classList.remove('hidden');
@@ -268,28 +312,30 @@ class AutoMLApp {
                 'Content-Type': 'application/x-www-form-urlencoded'
             }
         })
-        .then(response => response.text())
-        .then(html => {
-            console.log('EDA processing completed');
+        .then(response => response.json())
+        .then(result => {
+            this.hideModal('loadingModal');
             
-            // Now fetch the EDA data
-            fetch('/eda')
-            .then(response => response.json())
-            .then(eda => {
-                if (eda && Object.keys(eda).length > 0) {
-                    this.displayEDAResults(eda);
-                    this.navigateToStep('eda');
-                } else {
-                    console.error('No EDA data received from backend');
-                    alert('Error processing EDA. Please try again.');
+            if (result.success) {
+                console.log('EDA processing completed');
+                
+                // Display EDA results
+                this.displayEDAResults(result.eda);
+                
+                // Populate target selection
+                if (result.columns) {
+                    this.populateTargetSelection(result.columns, result.target, result.ptype);
                 }
-                this.hideModal('loadingModal');
-            })
-            .catch(error => {
-                console.error('Error fetching EDA data:', error);
-                alert('Error fetching EDA data. Please try again.');
-                this.hideModal('loadingModal');
-            });
+                
+                // Navigate to EDA section
+                this.navigateToStep('eda');
+                
+                // Show success message
+                this.showModal('successModal', result.message || 'EDA analysis completed!');
+            } else {
+                console.error('EDA processing failed:', result.error);
+                alert('Error processing EDA: ' + result.error);
+            }
         })
         .catch(error => {
             console.error('Error processing EDA:', error);
@@ -357,18 +403,23 @@ class AutoMLApp {
     }
     
     createDataQualityChartFromStats(stats) {
-        const ctx = document.getElementById('qualityChart').getContext('2d');
+        const ctx = document.getElementById('qualityChart');
+        if (!ctx) {
+            console.error('Quality chart canvas not found');
+            return;
+        }
         
         // Destroy existing chart if any
         if (this.qualityChartInstance) {
             this.qualityChartInstance.destroy();
+            this.qualityChartInstance = null;
         }
         
         const totalCells = stats.rows * stats.cols;
         const totalMissing = Object.values(stats.missing || {}).reduce((a, b) => a + b, 0);
         const completeCells = totalCells - totalMissing;
         
-        this.qualityChartInstance = new Chart(ctx, {
+        this.qualityChartInstance = new Chart(ctx.getContext('2d'), {
             type: 'doughnut',
             data: {
                 labels: ['Complete Data', 'Missing Values', 'Duplicate Rows'],
@@ -394,14 +445,19 @@ class AutoMLApp {
     }
     
     createColumnTypesChartFromStats(stats) {
-        const ctx = document.getElementById('typesChart').getContext('2d');
+        const ctx = document.getElementById('typesChart');
+        if (!ctx) {
+            console.error('Types chart canvas not found');
+            return;
+        }
         
         // Destroy existing chart if any
         if (this.typesChartInstance) {
             this.typesChartInstance.destroy();
+            this.typesChartInstance = null;
         }
         
-        this.typesChartInstance = new Chart(ctx, {
+        this.typesChartInstance = new Chart(ctx.getContext('2d'), {
             type: 'bar',
             data: {
                 labels: ['Numeric', 'Categorical'],
@@ -432,17 +488,22 @@ class AutoMLApp {
     }
     
     createMissingValuesChartFromStats(stats) {
-        const ctx = document.getElementById('missingChart').getContext('2d');
+        const ctx = document.getElementById('missingChart');
+        if (!ctx) {
+            console.error('Missing chart canvas not found');
+            return;
+        }
         
         // Destroy existing chart if any
         if (this.missingChartInstance) {
             this.missingChartInstance.destroy();
+            this.missingChartInstance = null;
         }
         
         const columns = Object.keys(stats.missing || {});
         const missingCounts = columns.map(col => stats.missing[col] || 0);
         
-        this.missingChartInstance = new Chart(ctx, {
+        this.missingChartInstance = new Chart(ctx.getContext('2d'), {
             type: 'bar',
             data: {
                 labels: columns,
@@ -619,8 +680,10 @@ class AutoMLApp {
         });
     }
     
-    populateTargetSelection(columns) {
+    populateTargetSelection(columns, defaultTarget = null, defaultPtype = null) {
         const targetSelect = document.getElementById('targetSelect');
+        const problemTypeSelect = document.getElementById('problemTypeSelect');
+        
         targetSelect.innerHTML = '<option value="">Choose target variable...</option>';
         
         columns.forEach(col => {
@@ -628,46 +691,65 @@ class AutoMLApp {
             option.value = col;
             option.textContent = col;
             
-            // Auto-select if matches common target patterns
-            if (this.targetPatterns.some(pattern => col.toLowerCase().includes(pattern))) {
+            // Auto-select if it's the default target or matches common patterns
+            if (col === defaultTarget || (!defaultTarget && this.targetPatterns.some(pattern => col.toLowerCase().includes(pattern)))) {
                 option.selected = true;
                 this.targetColumn = col;
-                this.analyzeTarget();
             }
             
             targetSelect.appendChild(option);
         });
+        
+        // Set default problem type if provided
+        if (defaultPtype && problemTypeSelect) {
+            problemTypeSelect.value = defaultPtype;
+            this.problemType = defaultPtype;
+        }
+        
+        // Analyze target if one is selected
+        if (this.targetColumn) {
+            this.analyzeTarget();
+            const startBtn = document.getElementById('startTrainingBtn');
+            if (startBtn) startBtn.disabled = false;
+        }
     }
     
     handleTargetSelection(e) {
         this.targetColumn = e.target.value;
+        const startTrainingBtn = document.getElementById('startTrainingBtn');
+        const targetPreview = document.getElementById('targetPreview');
+        
         if (this.targetColumn) {
             this.analyzeTarget();
-            document.getElementById('startTrainingBtn').disabled = false;
+            if (startTrainingBtn) startTrainingBtn.disabled = false;
         } else {
-            document.getElementById('targetPreview').classList.add('hidden');
-            document.getElementById('startTrainingBtn').disabled = true;
+            if (targetPreview) targetPreview.classList.add('hidden');
+            if (startTrainingBtn) startTrainingBtn.disabled = true;
         }
     }
     
     analyzeTarget() {
         if (!this.targetColumn) return;
         
-        // Fetch target analysis from backend
-        fetch('/eda')
-        .then(response => response.json())
-        .then(eda => {
-            if (eda && eda.stats) {
-                this.analyzeTargetFromBackend(eda.stats);
-            } else {
-                // Fallback to client-side analysis if available
-                this.analyzeTargetFromClient();
-            }
-        })
-        .catch(error => {
-            console.error('Error fetching target analysis:', error);
+        // First try to get data from session
+        if (this.currentData && this.currentData.length > 0) {
             this.analyzeTargetFromClient();
-        });
+        } else {
+            // Fallback: fetch data from preview endpoint
+            fetch('/data_preview')
+            .then(response => response.json())
+            .then(data => {
+                if (data && data.data) {
+                    this.currentData = data.data;
+                    this.analyzeTargetFromClient();
+                } else {
+                    console.error('No data available for target analysis');
+                }
+            })
+            .catch(error => {
+                console.error('Error fetching data for target analysis:', error);
+            });
+        }
     }
     
     analyzeTargetFromBackend(stats) {
@@ -734,31 +816,37 @@ class AutoMLApp {
         
         this.problemType = detectedType;
         
-        // Update UI
-        document.getElementById('problemTypeSelect').value = detectedType;
-        document.getElementById('detectedType').textContent = `Auto-detected: ${detectedType.charAt(0).toUpperCase() + detectedType.slice(1)}`;
-        document.getElementById('detectedType').className = 'status status--success';
-        
-        // Show target preview
+        // Update UI with null checks
+        const problemTypeSelect = document.getElementById('problemTypeSelect');
+        const detectedTypeElement = document.getElementById('detectedType');
         const targetPreview = document.getElementById('targetPreview');
         const targetStats = document.getElementById('targetStats');
         
-        targetStats.innerHTML = `
-            <div class="stat-item">
-                <span class="stat-label">Unique Values:</span>
-                <span class="stat-value">${uniqueValues.length}</span>
-            </div>
-            <div class="stat-item">
-                <span class="stat-label">Missing Values:</span>
-                <span class="stat-value">${this.currentData.length - targetValues.length}</span>
-            </div>
-            <div class="stat-item">
-                <span class="stat-label">Data Type:</span>
-                <span class="stat-value">${typeof targetValues[0]}</span>
-            </div>
-        `;
+        if (problemTypeSelect) problemTypeSelect.value = detectedType;
+        if (detectedTypeElement) {
+            detectedTypeElement.textContent = `Auto-detected: ${detectedType.charAt(0).toUpperCase() + detectedType.slice(1)}`;
+            detectedTypeElement.className = 'status status--success';
+        }
         
-        targetPreview.classList.remove('hidden');
+        // Show target preview
+        if (targetStats) {
+            targetStats.innerHTML = `
+                <div class="stat-item">
+                    <span class="stat-label">Unique Values:</span>
+                    <span class="stat-value">${uniqueValues.length}</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Missing Values:</span>
+                    <span class="stat-value">${this.currentData.length - targetValues.length}</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Data Type:</span>
+                    <span class="stat-value">${targetValues.length > 0 ? typeof targetValues[0] : 'unknown'}</span>
+                </div>
+            `;
+        }
+        
+        if (targetPreview) targetPreview.classList.remove('hidden');
     }
     
     handleProblemTypeSelection(e) {
@@ -768,9 +856,18 @@ class AutoMLApp {
     }
     
     updateSplitDisplay() {
-        const splitRatio = document.getElementById('splitRatio').value;
-        document.getElementById('trainPercent').textContent = splitRatio;
-        document.getElementById('testPercent').textContent = 100 - splitRatio;
+        const splitRatio = document.getElementById('splitRatio');
+        const trainPercent = document.getElementById('trainPercent');
+        const testPercent = document.getElementById('testPercent');
+        
+        if (!splitRatio || !trainPercent || !testPercent) {
+            console.warn('Split display elements not found');
+            return;
+        }
+        
+        const ratio = splitRatio.value;
+        trainPercent.textContent = ratio;
+        testPercent.textContent = 100 - ratio;
     }
     
     startTraining() {
@@ -794,31 +891,62 @@ class AutoMLApp {
             },
             body: `target=${encodeURIComponent(config.target)}&ptype=${encodeURIComponent(config.ptype)}&split=${encodeURIComponent(config.split)}`
         })
-        .then(response => response.text())
-        .then(html => {
+        .then(response => response.json())
+        .then(result => {
             // Hide loading modal
             this.hideModal('loadingModal');
             
-            // Fetch model results from backend and then navigate to results
-            this.fetchModelResults().then(() => {
-                // Navigate to results after data is loaded
-                setTimeout(() => {
-                    this.navigateToStep('results');
-                }, 500);
-            });
-            
-            // Show training actions after completion
-            setTimeout(() => {
-                const trainingActions = document.getElementById('trainingActions');
-                if (trainingActions) {
-                    trainingActions.classList.remove('hidden');
-                }
-            }, 1000);
+            if (result.success) {
+                console.log('Training completed successfully');
+                
+                // Store results
+                this.bestModel = {
+                    name: result.best_model,
+                    metrics: result.metrics
+                };
+                this.trainedModels = result.all_results;
+                this.featureImportance = result.feature_importance;
+                
+                // Display results
+                this.displayTrainingResults(result);
+                
+                // Navigate to results
+                this.navigateToStep('results');
+            } else {
+                console.error('Training failed:', result.error);
+                alert('Training failed: ' + result.error);
+            }
         })
         .catch(err => {
+            console.error('Training error:', err);
             this.hideModal('loadingModal');
-            alert('Model training failed.');
+            alert('Model training failed: ' + err.message);
         });
+    }
+    
+    displayTrainingResults(result) {
+        // Update best model info
+        const bestModelName = document.querySelector('.best-model-name');
+        const bestModelScore = document.querySelector('.best-model-score');
+        
+        if (bestModelName && result.best_model) {
+            bestModelName.textContent = result.best_model;
+        }
+        
+        if (bestModelScore && result.metrics) {
+            // Display primary metric based on problem type
+            const primaryMetric = this.problemType === 'regression' ? 'R^2' : 'Accuracy';
+            const score = result.metrics[primaryMetric];
+            if (score !== undefined) {
+                bestModelScore.textContent = `${primaryMetric}: ${(score * 100).toFixed(2)}%`;
+            }
+        }
+        
+        // Update metrics table
+        this.updateMetricsTable(result.all_results);
+        
+        // Create feature importance chart
+        this.createFeatureImportanceChart(result.feature_importance, result.best_model);
     }
 
     fetchModelResults() {
@@ -966,6 +1094,7 @@ class AutoMLApp {
         // Destroy existing chart if any
         if (this.performanceChartInstance) {
             this.performanceChartInstance.destroy();
+            this.performanceChartInstance = null;
         }
 
         const ctx = chartCanvas.getContext('2d');
@@ -1045,6 +1174,7 @@ class AutoMLApp {
         // Destroy existing chart if any
         if (this.featureImportanceChartInstance) {
             this.featureImportanceChartInstance.destroy();
+            this.featureImportanceChartInstance = null;
         }
         
         const ctx = chartCanvas.getContext('2d');
@@ -1104,16 +1234,98 @@ class AutoMLApp {
         }
     }
     
-    updateMetricsTable() {
+    updateMetricsTable(allResults) {
         const tbody = document.getElementById('metricsTableBody');
-        tbody.innerHTML = this.trainedModels.map(model => `
-            <tr>
-                <td class="font-bold">${model.name}</td>
-                <td class="text-primary font-bold">${model.primaryScore.toFixed(3)}</td>
-                <td>${model.trainingTime}s</td>
-                <td><span class="status status--completed">Completed</span></td>
-            </tr>
-        `).join('');
+        if (!tbody || !allResults) return;
+        
+        tbody.innerHTML = allResults.map(result => {
+            const model = result.model;
+            const metrics = result.metrics;
+            
+            // Get primary metric based on problem type
+            let primaryScore = 'N/A';
+            let primaryMetric = 'Score';
+            
+            if (this.problemType === 'regression') {
+                primaryMetric = 'R²';
+                primaryScore = metrics['R^2'] !== undefined ? metrics['R^2'].toFixed(3) : 'N/A';
+            } else {
+                primaryMetric = 'Accuracy';
+                primaryScore = metrics['Accuracy'] !== undefined ? metrics['Accuracy'].toFixed(3) : 'N/A';
+            }
+            
+            const trainingTime = metrics['Training_Time'] || 'N/A';
+            
+            return `
+                <tr>
+                    <td class="font-bold">${model}</td>
+                    <td class="text-primary font-bold">${primaryScore}</td>
+                    <td>${trainingTime}s</td>
+                    <td><span class="status status--completed">Completed</span></td>
+                </tr>
+            `;
+        }).join('');
+    }
+    
+    createFeatureImportanceChart(featureImportance, bestModelName) {
+        if (!featureImportance || !bestModelName || !featureImportance[bestModelName]) {
+            console.log('No feature importance data available');
+            return;
+        }
+        
+        const ctx = document.getElementById('featureImportanceChart');
+        if (!ctx) return;
+        
+        try {
+            // Destroy existing chart if any
+            if (this.featureImportanceChartInstance) {
+                this.featureImportanceChartInstance.destroy();
+            }
+            
+            const importance = featureImportance[bestModelName];
+            const features = Object.keys(importance);
+            const values = Object.values(importance);
+            
+            // Sort by importance
+            const sortedData = features.map((feature, index) => ({
+                feature,
+                value: values[index]
+            })).sort((a, b) => b.value - a.value).slice(0, 10); // Top 10 features
+            
+            this.featureImportanceChartInstance = new Chart(ctx.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: sortedData.map(d => d.feature),
+                    datasets: [{
+                        label: 'Feature Importance',
+                        data: sortedData.map(d => d.value),
+                        backgroundColor: '#1FB8CD',
+                        borderColor: '#1FB8CD',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        x: {
+                            beginAtZero: true
+                        },
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+            console.log('Feature importance chart created successfully');
+        } catch (error) {
+            console.error('Error creating feature importance chart:', error);
+        }
     }
     
     exportResults() {
@@ -1121,9 +1333,6 @@ class AutoMLApp {
         
         // Use backend export endpoint for CSV export
         window.location.href = '/export_results';
-        
-        this.showModal('successModal', 'Results exported successfully!');
-        document.getElementById('successText').textContent = 'Results exported successfully!';
     }
     
     resetApplication() {
@@ -1134,11 +1343,16 @@ class AutoMLApp {
             this.trainedModels = [];
             this.bestModel = null;
             
-            // Reset UI
-            document.getElementById('uploadArea').style.display = 'block';
-            document.getElementById('filePreview').classList.add('hidden');
-            document.getElementById('dataPreview').classList.add('hidden');
-            document.getElementById('fileInput').value = '';
+            // Reset UI with null checks
+            const uploadArea = document.getElementById('uploadArea');
+            const filePreview = document.getElementById('filePreview');
+            const dataPreview = document.getElementById('dataPreview');
+            const fileInput = document.getElementById('fileInput');
+            
+            if (uploadArea) uploadArea.style.display = 'block';
+            if (filePreview) filePreview.classList.add('hidden');
+            if (dataPreview) dataPreview.classList.add('hidden');
+            if (fileInput) fileInput.value = '';
             
             this.navigateToStep('upload');
         }
@@ -1146,14 +1360,25 @@ class AutoMLApp {
     
     showModal(modalId, text = '') {
         const modal = document.getElementById(modalId);
+        if (!modal) {
+            console.error(`Modal ${modalId} not found`);
+            return;
+        }
+        
         if (text && modalId === 'loadingModal') {
-            document.getElementById('loadingText').textContent = text;
+            const loadingText = document.getElementById('loadingText');
+            if (loadingText) loadingText.textContent = text;
         }
         modal.classList.remove('hidden');
     }
     
     hideModal(modalId) {
-        document.getElementById(modalId).classList.add('hidden');
+        const modal = document.getElementById(modalId);
+        if (modal) {
+            modal.classList.add('hidden');
+        } else {
+            console.error(`Modal ${modalId} not found`);
+        }
     }
     
     // Test method to debug charts

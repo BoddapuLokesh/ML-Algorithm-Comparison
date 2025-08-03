@@ -3,29 +3,24 @@ import uuid
 import pandas as pd
 from flask import Flask, render_template, request, redirect, url_for, session, send_file, jsonify
 from werkzeug.utils import secure_filename
-from model_utils import perform_eda, detect_target_and_type, train_models, get_model_metrics, allowed_file
+from model_utils import perform_eda, detect_target_and_type, train_models, allowed_file
 from joblib import load, dump
 
 UPLOAD_FOLDER = 'uploads'
 ALLOWED_EXTENSIONS = {'csv', 'xlsx', 'xls'}
 
 app = Flask(__name__)
-app.secret_key = 'your_secret_key_here'
+app.secret_key = os.urandom(24)  # Generate random secret key
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max file size
 
+# Ensure directories exist before configuring session
+os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+os.makedirs(os.path.join(os.getcwd(), 'flask_session'), exist_ok=True)
+
 # Configure session settings for better persistence
 app.config['SESSION_PERMANENT'] = True
-app.config['SESSION_TYPE'] = 'filesystem'
 app.config['PERMANENT_SESSION_LIFETIME'] = 3600  # 1 hour
-app.config['SESSION_FILE_DIR'] = os.path.join(os.getcwd(), 'flask_session')
-app.config['SESSION_FILE_THRESHOLD'] = 500
-
-# Ensure uploads directory exists
-os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-
-# Ensure session directory exists
-os.makedirs(app.config['SESSION_FILE_DIR'], exist_ok=True)
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
@@ -53,28 +48,61 @@ def index():
         print(f"File saved to: {filepath}")
 
         try:
+            # Validate file before processing
+            if not os.path.exists(filepath):
+                print(f"ERROR: File not found: {filepath}")
+                return jsonify({'success': False, 'error': "File upload failed."})
+            
+            # Check file size
+            file_size = os.path.getsize(filepath)
+            if file_size == 0:
+                print(f"ERROR: Empty file: {filepath}")
+                return jsonify({'success': False, 'error': "File is empty."})
+            
             df = pd.read_csv(filepath) if filename.endswith('.csv') else pd.read_excel(filepath)
             print(f"Data loaded: {df.shape}")
             
-            # Store basic file info in session for later EDA processing
-            session['file_shape'] = df.shape
-            session['file_columns'] = list(df.columns)
+            # Validate dataframe
+            if df.empty:
+                print(f"ERROR: Empty dataframe from file: {filepath}")
+                return jsonify({'success': False, 'error': "File contains no data."})
             
-            # Store data preview (first few rows) for frontend display
-            preview_data = df.head(3).to_dict('records')  # First 3 rows as list of dicts
+            # Store basic file info in session for later EDA processing
+            session['file_shape'] = list(df.shape)  # Convert tuple to list for JSON serialization
+            session['file_columns'] = list(df.columns)
+            session['filename'] = file.filename
+            
+            # Store data preview (first 5 rows) for frontend display - handle NaN values
+            preview_df = df.head(5).fillna('')  # Replace NaN with empty string
+            preview_data = preview_df.to_dict('records')  # Convert to list of dicts
             session['data_preview'] = preview_data
             print(f"File info stored in session: {df.shape} with columns: {list(df.columns)[:5]}...")
+            
+            # Auto-detect basic data types for preview
+            dtypes_info = {}
+            for col in df.columns:
+                if pd.api.types.is_numeric_dtype(df[col]):
+                    dtypes_info[col] = 'numeric'
+                else:
+                    dtypes_info[col] = 'categorical'
+            session['dtypes_info'] = dtypes_info
+            
         except Exception as e:
             print(f"ERROR: Failed to read file: {str(e)}")
-            return render_template('index.html', error="Failed to read the file. Ensure it is a valid CSV or Excel file.")
+            return jsonify({'success': False, 'error': f"Failed to read the file: {str(e)}"})
 
         print("=== FILE UPLOAD COMPLETED ===")
 
-        # Return to upload section with file preview, don't auto-process EDA
-        return render_template('index.html', file_uploaded=True, 
-                             file_name=file.filename, 
-                             file_shape=df.shape,
-                             current_step='upload')
+        # Return JSON response for AJAX handling - ensure all values are JSON serializable
+        return jsonify({
+            'success': True,
+            'file_uploaded': True, 
+            'file_name': file.filename, 
+            'file_shape': list(df.shape),  # Convert tuple to list
+            'columns': list(df.columns),
+            'preview_data': preview_data,
+            'message': 'File uploaded successfully!'
+        })
 
     return render_template('index.html', current_step='upload')
 
@@ -91,7 +119,7 @@ def process_eda():
         print("ERROR: No uploaded file found for EDA processing.")
         print("Session filepath:", session.get('filepath'))
         print("Available session keys:", list(session.keys()))
-        return redirect(url_for('index'))
+        return jsonify({'success': False, 'error': 'No uploaded file found. Please upload a dataset first.'})
     
     # Clear any previous EDA/training data for new analysis
     for key in ['eda', 'target', 'ptype', 'history', 'best_model_name', 'metrics', 'feature_importance', 'all_results']:
@@ -113,15 +141,21 @@ def process_eda():
         print(f"EDA stats keys: {list(eda.keys())}")
         print("=== EDA PROCESSING COMPLETED ===")
 
-        # Return EDA results
-        return render_template('index.html', eda=eda, choose_target=True, 
-                             columns=df.columns, default_target=target, 
-                             default_ptype=ptype, current_step='eda')
+        # Return JSON response with EDA results
+        return jsonify({
+            'success': True,
+            'eda': eda,
+            'target': target,
+            'ptype': ptype,
+            'columns': list(df.columns),
+            'message': 'EDA analysis completed successfully!'
+        })
+        
     except Exception as e:
         print(f"ERROR in EDA processing: {str(e)}")
         import traceback
         traceback.print_exc()
-        return redirect(url_for('index'))
+        return jsonify({'success': False, 'error': f'EDA processing failed: {str(e)}'})
 
 @app.route('/train', methods=['POST'])
 def train():
@@ -136,7 +170,7 @@ def train():
     if not filepath or not os.path.exists(filepath):
         print("ERROR: No uploaded file found. Please upload a dataset first.")
         print("Session filepath:", session.get('filepath'))
-        return redirect(url_for('index'))
+        return jsonify({'success': False, 'error': 'No uploaded file found. Please upload a dataset first.'})
 
     target = request.form['target']
     ptype = request.form['ptype']
@@ -154,7 +188,7 @@ def train():
         
         if target not in df.columns:
             print(f"ERROR: Target column '{target}' not found in data")
-            return redirect(url_for('index'))
+            return jsonify({'success': False, 'error': f"Target column '{target}' not found in data"})
         
         models, best_model_name, metrics, feature_importance, all_results = train_models(df, target, ptype, split_ratio)
         print(f"Training completed. Best model: {best_model_name}")
@@ -183,18 +217,22 @@ def train():
         print("=== TRAINING COMPLETED ===")
 
         # Always render all sections, set current_step for JS
-        return render_template('index.html', training_results=True,
-                               best_model=best_model_name,
-                               metrics=metrics,
-                               feature_importance=feature_importance,
-                               all_results=all_results,
-                               columns=list(df.drop(columns=[target]).columns),
-                               current_step='train')
+        return jsonify({
+            'success': True,
+            'training_results': True,
+            'best_model': best_model_name,
+            'metrics': metrics,
+            'feature_importance': feature_importance,
+            'all_results': all_results,
+            'columns': list(df.drop(columns=[target]).columns),
+            'message': f'Training completed! Best model: {best_model_name}'
+        })
+        
     except Exception as e:
         print(f"ERROR in training: {str(e)}")
         import traceback
         traceback.print_exc()
-        return redirect(url_for('index'))
+        return jsonify({'success': False, 'error': f'Training failed: {str(e)}'})
 
 @app.route('/metrics', methods=['GET'])
 def get_metrics():
@@ -233,10 +271,22 @@ def get_data_preview():
     preview_data = session.get('data_preview', [])
     columns = session.get('file_columns', [])
     filepath = session.get('filepath', 'None')
-    print(f"Data preview requested - Filepath: {filepath}, Columns: {len(columns)}, Rows: {len(preview_data)}")
+    
+    # Ensure all values in preview_data are JSON serializable
+    clean_preview_data = []
+    for row in preview_data:
+        clean_row = {}
+        for key, value in row.items():
+            if pd.isna(value) or value is None:
+                clean_row[key] = ''  # Replace NaN/None with empty string
+            else:
+                clean_row[key] = str(value)  # Convert to string to be safe
+        clean_preview_data.append(clean_row)
+    
+    print(f"Data preview requested - Filepath: {filepath}, Columns: {len(columns)}, Rows: {len(clean_preview_data)}")
     return jsonify({
         'columns': columns,
-        'data': preview_data,
+        'data': clean_preview_data,
         'filepath': filepath  # For debugging
     })
 

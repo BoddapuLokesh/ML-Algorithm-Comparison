@@ -1,26 +1,6 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AutoML Web Application</title>
-    <link rel="stylesheet" href="static/style.css">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
-</head>
-<body>
-    <!-- Navigation -->
-    <nav class="navbar">
-        <div class="container">ex
-            <div class="navbar-brand">
-                <h2>AutoML Platform</h2>
-            </div>
-            <div class="navbar-nav">
-                <button class="btn btn--outline btn--sm" id="resetBtn">Reset Application</button>
-            </div>
-        </div>
-    </nav>
+{% extends "layout.html" %}
 
+{% block content %}
     <!-- Progress Indicator -->
     <div class="progress-container">
         <div class="container">
@@ -33,11 +13,11 @@
                     <div class="step-circle">2</div>
                     <span>EDA Analysis</span>
                 </div>
-                <div class="progress-step" data-step="configure">
+                <div class="progress-step" data-step="config">
                     <div class="step-circle">3</div>
                     <span>Configure</span>
                 </div>
-                <div class="progress-step" data-step="train">
+                <div class="progress-step" data-step="training">
                     <div class="step-circle">4</div>
                     <span>Train Models</span>
                 </div>
@@ -362,5 +342,4 @@
             }
         });
     </script>
-</body>
-</html>
+{% endblock %}
