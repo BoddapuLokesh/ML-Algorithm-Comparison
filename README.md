@@ -25,21 +25,35 @@ cd ML-Algorithm-Comparison-and-Insight-Tool
 ```
 
 2. Create a virtual environment:
+
+For Mac or Linux:
 ```bash
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+source venv/bin/activate  
+```
+For Windows:
+```
+python -m venv venv
+venv\Scripts\activate
 ```
 
 3. Install dependencies:
 ```bash
-pip install -r requirements.txt
+pip3 install -r requirements.txt ##For Mac or Linux
+```
+
+```
+pip install -r requirements.txt ##For Windows
 ```
 
 ## Usage
 
 1. Start the Flask application:
 ```bash
-python app.py
+python3 app.py ##For Mac or Linux
+```
+```
+python app.py ##For Windows
 ```
 
 2. Open your browser and navigate to `http://localhost:5000`
