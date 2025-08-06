@@ -20,7 +20,7 @@ A Flask web application for automated machine learning model comparison and anal
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/BoddapuLokesh/ML-Algorithm-Comparison-and-Insight-Tool.git
+git clone https://github.com/BoddapuLokesh/ML-Algorithm-Comparison.git
 ```
 
 2. Create a virtual environment:
