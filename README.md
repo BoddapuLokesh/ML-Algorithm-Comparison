@@ -89,6 +89,3 @@ python app.py ##For Windows
 - pandas 2.1+
 - plotly 5.17+
 
-## License
-
-This project is open source and available under the [MIT License](LICENSE).
