@@ -3,7 +3,11 @@ import uuid
 import pandas as pd
 from flask import Flask, render_template, request, redirect, url_for, session, send_file, jsonify
 from werkzeug.utils import secure_filename
-from model_utils import perform_eda, detect_target_and_type, train_models, allowed_file
+from model_utils import (
+    detect_target_and_type, train_models, allowed_file,
+    validate_file_upload, analyze_target_column, generate_data_preview_html,
+    get_enhanced_eda_stats, validate_training_config, calculate_split_percentages
+)
 from joblib import load, dump
 
 UPLOAD_FOLDER = 'uploads'
@@ -34,14 +38,17 @@ def index():
         
         if 'dataset' not in request.files:
             print("ERROR: No file uploaded")
-            return render_template('index.html', error="No file uploaded.")
+            return jsonify({'success': False, 'error': "No file uploaded."})
         file = request.files['dataset']
         print(f"Uploaded file: {file.filename}")
-        if not file.filename or not allowed_file(file.filename):
-            print(f"ERROR: Unsupported file format: {file.filename}")
-            return render_template('index.html', error="Unsupported file format.")
+        
+        # Enhanced file validation (moved from JavaScript)
+        is_valid, validation_message = validate_file_upload(file)
+        if not is_valid:
+            print(f"ERROR: File validation failed: {validation_message}")
+            return jsonify({'success': False, 'error': validation_message})
 
-        filename = f"{uuid.uuid4().hex}_{secure_filename(file.filename)}"
+        filename = f"{uuid.uuid4().hex}_{secure_filename(file.filename or 'upload')}"
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(filepath)
         session['filepath'] = filepath
@@ -131,8 +138,8 @@ def process_eda():
         df = pd.read_csv(filepath) if filepath.endswith('.csv') else pd.read_excel(filepath)
         print(f"Data loaded for EDA: {df.shape}")
         
-        # Perform EDA analysis
-        eda = perform_eda(df)
+        # Perform enhanced EDA analysis
+        eda = get_enhanced_eda_stats(df)
         target, ptype = detect_target_and_type(df)
         session['target'], session['ptype'] = target, ptype
         session['columns'] = list(df.columns)
@@ -185,6 +192,13 @@ def train():
         print(f"Data loaded from uploaded file: {df.shape}")
         print(f"Columns: {list(df.columns)}")
         print(f"Target column '{target}' exists: {target in df.columns}")
+        
+        # Enhanced training validation (moved from JavaScript)
+        validation_result = validate_training_config(df, target, ptype, split_ratio)
+        if not validation_result['valid']:
+            error_message = "; ".join(validation_result['errors'])
+            print(f"ERROR: Training validation failed: {error_message}")
+            return jsonify({'success': False, 'error': f"Training validation failed: {error_message}"})
         
         if target not in df.columns:
             print(f"ERROR: Target column '{target}' not found in data")
@@ -296,6 +310,111 @@ def model_comparison():
     """AJAX endpoint: returns all trained model metrics for comparison."""
     return jsonify(session.get('history', []))
 
+# New: Enhanced target analysis endpoint (moved from JavaScript)
+@app.route('/analyze_target', methods=['POST'])
+def analyze_target():
+    """Enhanced target analysis endpoint"""
+    try:
+        data = request.get_json()
+        target_column = data.get('target') if data else request.form.get('target')
+        
+        if not target_column:
+            return jsonify({'success': False, 'error': 'Target column not specified'})
+            
+        filepath = session.get('filepath')
+        if not filepath or not os.path.exists(filepath):
+            return jsonify({'success': False, 'error': 'No file found. Please upload a dataset first.'})
+        
+        # Load data
+        df = pd.read_csv(filepath) if filepath.endswith('.csv') else pd.read_excel(filepath)
+        
+        # Perform analysis
+        analysis = analyze_target_column(df, target_column)
+        return jsonify(analysis)
+        
+    except Exception as e:
+        print(f"Error in target analysis: {str(e)}")
+        return jsonify({'success': False, 'error': f'Target analysis failed: {str(e)}'})
+
+# New: Server-side HTML generation for data preview
+@app.route('/get_data_preview_html', methods=['GET'])
+def get_data_preview_html():
+    """Generate HTML table server-side for better security"""
+    try:
+        preview_data = session.get('data_preview', [])
+        columns = session.get('file_columns', [])
+        
+        if not preview_data or not columns:
+            return jsonify({'html': '<div class="text-center text-gray-500">No data available for preview</div>'})
+        
+        # Generate HTML server-side using the helper function
+        html_content = generate_data_preview_html(preview_data, columns)
+        
+        return jsonify({
+            'success': True,
+            'html': html_content,
+            'columns_count': len(columns),
+            'rows_count': len(preview_data)
+        })
+        
+    except Exception as e:
+        print(f"Error generating preview HTML: {str(e)}")
+        return jsonify({'success': False, 'error': f'Failed to generate preview: {str(e)}'})
+
+# New: Split ratio calculation endpoint
+@app.route('/calculate_split', methods=['POST'])
+def calculate_split():
+    """Calculate train/test split percentages"""
+    try:
+        data = request.get_json()
+        split_ratio = float(data.get('split_ratio', 0.8))
+        
+        train_percent, test_percent = calculate_split_percentages(split_ratio)
+        
+        return jsonify({
+            'success': True,
+            'train_percent': train_percent,
+            'test_percent': test_percent,
+            'split_ratio': split_ratio
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'Failed to calculate split: {str(e)}'})
+
+# New: Training configuration validation endpoint
+@app.route('/validate_training_config', methods=['POST'])
+def validate_training_config_endpoint():
+    """Validate training configuration before starting training"""
+    try:
+        # Handle both form and JSON data
+        if request.is_json:
+            data = request.get_json() or {}
+            target = data.get('target')
+            ptype = data.get('ptype')
+            split_ratio = float(data.get('split_ratio', 0.8))
+        else:
+            target = request.form.get('target')
+            ptype = request.form.get('ptype')
+            split_ratio = float(request.form.get('split', 0.8))
+        
+        filepath = session.get('filepath')
+        if not filepath or not os.path.exists(filepath):
+            return jsonify({'success': False, 'error': 'No file found'})
+        
+        # Load data
+        df = pd.read_csv(filepath) if filepath.endswith('.csv') else pd.read_excel(filepath)
+        
+        # Validate configuration
+        validation_result = validate_training_config(df, target, ptype, split_ratio)
+        
+        return jsonify({
+            'success': True,
+            'validation_result': validation_result
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'Validation failed: {str(e)}'})
+
 @app.route('/debug_session', methods=['GET'])
 def debug_session():
     """Debug endpoint to check session data."""
@@ -379,4 +498,5 @@ def cleanup_uploads():
     shutil.rmtree(UPLOAD_FOLDER, ignore_errors=True)
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5001)
+    app.run(debug=True, port=5002)
+

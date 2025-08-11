@@ -1,81 +1,90 @@
 # ML Algorithm Comparison and Insight Tool
 
-A Flask web application for automated machine learning model comparison and analysis.
+A Flask web app that performs automated EDA, compares multiple ML algorithms, and explains results with interactive charts.
 
-## Features
+## Key features
 
-- **Automated EDA**: Upload a dataset and get comprehensive exploratory data analysis
-- **Smart Target Detection**: Automatically identifies target variables and problem types (classification/regression)
-- **Multi-Model Training**: Trains and compares multiple ML algorithms:
-  - Logistic Regression / Linear Regression
-  - Random Forest
-  - Gradient Boosting
-  - Support Vector Machine
-  - Decision Tree
-- **Performance Metrics**: Comprehensive evaluation metrics for each model
-- **Interactive Visualizations**: Plotly-powered charts and graphs
-- **Model Export**: Download the best performing model
+- Upload CSV, XLSX, or XLS and get instant EDA with data quality, missingness, and type breakdowns
+- Smart target detection and problem-type inference (classification vs regression)
+- Train and compare multiple models out of the box:
+  - Classification: Logistic Regression, Random Forest, Gradient Boosting, SVC, Decision Tree
+  - Regression: Linear Regression, Random Forest, Gradient Boosting, SVR, Decision Tree
+- Clear metrics per task (Accuracy/Precision/Recall/F1 for classification, R²/MSE for regression)
+- Best model selection and downloadable serialized model (.joblib)
+- Secure, server-generated data preview and backend validations
+- Interactive visualizations powered by Chart.js on the frontend
 
-## Installation
+## What changed recently (merged from enhancement notes)
 
-1. Clone the repository:
-```bash
-git clone <repository-url>
-cd ML-Algorithm-Comparison-and-Insight-Tool
-```
+- Moved validation, target analysis, and preview generation from JavaScript to Python for consistency and security
+- Added endpoints: `/analyze_target`, `/get_data_preview_html`, `/calculate_split`, `/validate_training_config`
+- Enhanced `/process_eda` and `/train` with better errors, EDA stats, and configuration checks
+- Hardened XSS protection via server-side HTML escaping for previews
 
-2. Create a virtual environment:
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
+## Tech stack
 
-3. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
+- Backend: Flask, pandas, scikit-learn, joblib
+- Frontend: HTML/CSS, Chart.js (CDN)
+- File support: pandas + openpyxl (xlsx) + xlrd (xls)
 
-## Usage
-
-1. Start the Flask application:
-```bash
-python app.py
-```
-
-2. Open your browser and navigate to `http://localhost:5000`
-
-3. Upload a CSV, Excel, or XLS file containing your dataset
-
-4. Follow the guided workflow:
-   - Review EDA results
-   - Confirm target variable and problem type
-   - Train models and compare performance
-   - Download the best model
-
-## Supported File Formats
-
-- CSV (.csv)
-- Excel (.xlsx, .xls)
-
-## Project Structure
+## Project structure
 
 ```
-├── app.py              # Main Flask application
-├── model_utils.py      # ML utilities and model training functions
+├── app.py              # Flask app and API endpoints
+├── model_utils.py      # EDA, preprocessing, training, validations
+├── templates/          # Jinja templates (layout + index)
+├── static/             # CSS and JS (Chart.js via CDN)
 ├── requirements.txt    # Python dependencies
-├── static/            # CSS, JavaScript, and static assets
-├── templates/         # HTML templates
-└── .gitignore        # Git ignore rules
+└── ENHANCEMENT_SUMMARY.md  # Historical notes (merged into this README)
 ```
 
-## Requirements
+## Setup
 
-- Python 3.8+
-- Flask 3.0+
-- scikit-learn 1.3+
-- pandas 2.1+
-- plotly 5.17+
+1) Clone and enter the folder
+- git clone <repository-url>
+- cd ML-Algorithm-Comparison-and-Insight-Tool
+
+2) Create and activate a virtual environment (macOS/Linux)
+- python -m venv .venv
+- source .venv/bin/activate
+
+3) Install dependencies
+- pip install -r requirements.txt
+
+## Run
+
+- python app.py
+- Open http://127.0.0.1:5002 in your browser
+
+Notes
+- Default max upload is 50MB; supported formats: .csv, .xlsx, .xls
+- The app generates a random secret key on each run, so sessions reset on restart
+
+## Usage workflow
+
+1) Upload a dataset to see a safe (escaped) server-generated preview
+2) Click Analyze Dataset to run EDA and get dataset stats and charts
+3) Pick target column; the app suggests problem type automatically
+4) Validate and start training; compare models and metrics
+5) Export results CSV or download the best model (.joblib)
+
+## API endpoints (selected)
+
+- POST `/`                          — Upload file (AJAX)
+- POST `/process_eda`               — Run EDA and return stats
+- POST `/train`                     — Train selected task and return metrics
+- GET  `/data_preview`              — JSON preview data
+- GET  `/get_data_preview_html`     — Secure HTML preview
+- POST `/analyze_target`            — Analyze a target column
+- POST `/validate_training_config`  — Validate config before training
+- POST `/calculate_split`           — Convert ratio to train/test percentages
+- GET  `/best_model`, `/metrics`, `/feature_importance`, `/model_comparison`
+
+## Troubleshooting
+
+- Reading .xls requires xlrd. If you only need .xlsx, you can drop xlrd.
+- If a model times out on very large datasets, the app will skip it. Consider sampling or using linear kernels.
 
 ## License
 
-This project is open source and available under the [MIT License](LICENSE).
+MIT

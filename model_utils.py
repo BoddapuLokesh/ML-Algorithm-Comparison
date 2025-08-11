@@ -446,3 +446,161 @@ def train_models(df, target, problem_type, split_ratio):
     except Exception as e:
         print(f"Error in train_models: {str(e)}")
         raise
+
+def validate_file_upload(file):
+    """Enhanced file validation moved from JavaScript"""
+    if not file or not file.filename:
+        return False, "No file selected"
+    
+    # File type validation (moved from JS)
+    allowed_extensions = {'csv', 'xlsx', 'xls'}
+    if not ('.' in file.filename and 
+            file.filename.rsplit('.', 1)[1].lower() in allowed_extensions):
+        return False, "Invalid file type. Only CSV, XLSX, and XLS files are supported."
+    
+    return True, "File validation passed"
+
+def analyze_target_column(df, target_column):
+    """Enhanced target analysis that JavaScript currently does"""
+    if target_column not in df.columns:
+        return {
+            'success': False,
+            'error': f"Column '{target_column}' not found in dataset"
+        }
+        
+    target_values = df[target_column].dropna()
+    unique_values = target_values.nunique()
+    total_values = len(df[target_column])
+    missing_count = df[target_column].isnull().sum()
+    
+    # Enhanced logic from JavaScript
+    analysis = {
+        'success': True,
+        'column_name': target_column,
+        'unique_count': safe_json_convert(unique_values),
+        'missing_count': safe_json_convert(missing_count),
+        'total_rows': safe_json_convert(total_values),
+        'data_type': str(df[target_column].dtype),
+        'sample_values': [str(v) for v in target_values.head(10).tolist()],
+        'missing_percentage': round((missing_count / total_values * 100), 2) if total_values > 0 else 0
+    }
+    
+    # Auto-detection logic (moved from JavaScript)
+    if pd.api.types.is_numeric_dtype(df[target_column]):
+        # For numeric columns, check if it looks like classification or regression
+        if unique_values <= 10 and all(target_values.dropna().apply(lambda x: float(x).is_integer())):
+            detected_type = 'classification'
+        else:
+            detected_type = 'regression'
+    else:
+        # For non-numeric columns, always classification
+        detected_type = 'classification'
+    
+    analysis['detected_type'] = detected_type
+    analysis['type_confidence'] = 'high' if unique_values <= 10 else 'medium'
+    
+    return analysis
+
+def generate_data_preview_html(preview_data, columns):
+    """Generate HTML table server-side for better security"""
+    import html  # Local import - only used in this function
+    
+    if not preview_data or not columns:
+        return '<div class="text-center text-gray-500">No data available for preview</div>'
+    
+    # Generate HTML server-side (safer than client-side JS)
+    html_content = '<table class="data-table"><thead><tr>'
+    
+    # Add headers with proper escaping
+    for col in columns:
+        html_content += f'<th>{html.escape(str(col))}</th>'
+    html_content += '</tr></thead><tbody>'
+    
+    # Add data rows with proper escaping
+    for row in preview_data:
+        html_content += '<tr>'
+        for col in columns:
+            value = row.get(col, '') if row else ''
+            if pd.isna(value) or value is None:
+                value = ''
+            html_content += f'<td>{html.escape(str(value))}</td>'
+        html_content += '</tr>'
+    html_content += '</tbody></table>'
+    
+    return html_content
+
+def calculate_split_percentages(split_ratio):
+    """Calculate train/test split percentages"""
+    train_percent = int(split_ratio * 100)
+    test_percent = 100 - train_percent
+    return train_percent, test_percent
+
+def validate_training_config(df, target, problem_type, split_ratio):
+    """Validate training configuration before starting training"""
+    errors = []
+    
+    # Validate target column
+    if target not in df.columns:
+        errors.append(f"Target column '{target}' not found in dataset")
+    elif df[target].isnull().all():
+        errors.append(f"Target column '{target}' contains no valid values")
+    
+    # Validate problem type
+    valid_types = ['classification', 'regression', 'binary', 'multiclass']
+    if problem_type not in valid_types:
+        errors.append(f"Invalid problem type '{problem_type}'. Must be one of {valid_types}")
+    
+    # Validate split ratio
+    try:
+        ratio = float(split_ratio)
+        if ratio <= 0 or ratio >= 1:
+            errors.append("Split ratio must be between 0 and 1")
+    except (ValueError, TypeError):
+        errors.append("Split ratio must be a valid number")
+    
+    # Check minimum data requirements
+    if len(df) < 10:
+        errors.append("Dataset too small. Need at least 10 rows for training")
+    
+    if target in df.columns:
+        unique_target_values = df[target].nunique()
+        if problem_type in ['classification', 'binary', 'multiclass'] and unique_target_values < 2:
+            errors.append(f"Classification requires at least 2 unique target values, found {unique_target_values}")
+    
+    return {
+        'valid': len(errors) == 0,
+        'errors': errors
+    }
+
+def get_enhanced_eda_stats(df):
+    """Get enhanced EDA statistics with additional insights"""
+    basic_eda = perform_eda(df)
+    
+    # Add additional statistics
+    enhanced_stats = basic_eda['stats'].copy()
+    
+    # Data quality score
+    total_cells = enhanced_stats['rows'] * enhanced_stats['cols']
+    missing_cells = enhanced_stats['total_missing_values']
+    quality_score = ((total_cells - missing_cells) / total_cells * 100) if total_cells > 0 else 100
+    enhanced_stats['data_quality_score'] = round(quality_score, 2)
+    
+    # Memory usage
+    try:
+        memory_usage = df.memory_usage(deep=True).sum()
+        enhanced_stats['memory_usage_mb'] = round(memory_usage / (1024 * 1024), 2)
+    except:
+        enhanced_stats['memory_usage_mb'] = 0
+    
+    # Column type distribution
+    enhanced_stats['column_type_distribution'] = {
+        'numeric': len(enhanced_stats['numerics']),
+        'categorical': len(enhanced_stats['categoricals']),
+        'total': enhanced_stats['cols']
+    }
+    
+    return {
+        'stats': enhanced_stats,
+        'plot_data': basic_eda['plot_data'],
+        'correlation_data': basic_eda['correlation_data']
+    }

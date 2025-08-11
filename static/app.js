@@ -122,17 +122,9 @@ class AutoMLApp {
     }
     
     processFile(file) {
-        // Validate file type and size
-        const validTypes = ['.csv', '.xlsx', '.xls'];
-        const fileExtension = '.' + file.name.split('.').pop().toLowerCase();
-        
-        if (!validTypes.includes(fileExtension)) {
-            alert('Please upload a CSV or Excel file.');
-            return;
-        }
-        
-        if (file.size > 50 * 1024 * 1024) { // 50MB limit
-            alert('File size too large. Please upload a file smaller than 50MB.');
+        // Basic validation - detailed validation is now handled by Python backend
+        if (!file) {
+            alert('Please select a file.');
             return;
         }
         
@@ -142,7 +134,7 @@ class AutoMLApp {
         const formData = new FormData();
         formData.append('dataset', file);
         
-        // Upload file to Flask backend
+        // Upload file to Flask backend - backend now handles all validation
         fetch('/', {
             method: 'POST',
             body: formData
@@ -155,8 +147,8 @@ class AutoMLApp {
                 // Display file preview using backend data
                 this.displayFilePreview(file, result);
                 
-                // Display data preview immediately
-                this.displayActualDataPreview({
+                // Display data preview using server-generated HTML for better security
+                this.displayDataPreviewFromBackend({
                     columns: result.columns,
                     data: result.preview_data
                 });
@@ -246,32 +238,42 @@ class AutoMLApp {
         preview.classList.remove('hidden');
     }
     
-    displayDataPreviewFromBackend(eda) {
-        const preview = document.getElementById('dataPreview');
-        const tableHead = document.getElementById('tableHead');
-        const tableBody = document.getElementById('tableBody');
-        
-        if (!eda || !eda.stats) return;
-        
-        // Get column names from backend
-        const allColumns = [...(eda.stats.numerics || []), ...(eda.stats.categoricals || [])];
-        
-        // Create table header - sanitize column names
-        tableHead.innerHTML = allColumns.map(col => `<th>${this.escapeHtml(col)}</th>`).join('');
-        
-        // Create placeholder rows (since we don't have actual row data)
-        tableBody.innerHTML = `
-            <tr>
-                ${allColumns.map(() => '<td>Loading...</td>').join('')}
-            </tr>
-            <tr>
-                <td colspan="${allColumns.length}" class="text-center text-gray-500">
-                    Data preview available after EDA analysis
-                </td>
-            </tr>
-        `;
-        
-        preview.classList.remove('hidden');
+    displayDataPreviewFromBackend(data) {
+        // Use server-generated HTML for better security
+        fetch('/get_data_preview_html')
+        .then(response => response.json())
+        .then(result => {
+            if (result.success) {
+                const preview = document.getElementById('dataPreview');
+                const tableContainer = document.querySelector('#dataPreview .table-container');
+                
+                if (tableContainer) {
+                    tableContainer.innerHTML = result.html;
+                } else {
+                    // Fallback: create table container if it doesn't exist
+                    const previewTitle = document.querySelector('#dataPreview h3');
+                    if (previewTitle) {
+                        previewTitle.insertAdjacentHTML('afterend', `<div class="table-container">${result.html}</div>`);
+                    }
+                }
+                
+                // Store data for target analysis (fallback)
+                this.currentData = data.data;
+                this.columns = data.columns;
+                
+                preview.classList.remove('hidden');
+                console.log(`Data preview loaded: ${result.columns_count} columns, ${result.rows_count} rows`);
+            } else {
+                console.error('Failed to load server-generated preview:', result.error);
+                // Fallback to client-side generation
+                this.displayActualDataPreview(data);
+            }
+        })
+        .catch(error => {
+            console.error('Error loading server-generated preview:', error);
+            // Fallback to client-side generation
+            this.displayActualDataPreview(data);
+        });
     }
     
     displayDataPreview() {
@@ -365,31 +367,8 @@ class AutoMLApp {
         }
     }
     
-    performEDA() {
-        if (!this.currentData) return;
-        
-        const columns = Object.keys(this.currentData[0]);
-        const numRows = this.currentData.length;
-        
-        // Calculate statistics
-        const stats = this.calculateDatasetStats(columns);
-        
-        // Update EDA display
-        document.getElementById('totalRows').textContent = numRows;
-        document.getElementById('totalColumns').textContent = columns.length;
-        document.getElementById('numericColumns').textContent = stats.numericColumns;
-        document.getElementById('categoricalColumns').textContent = stats.categoricalColumns;
-        document.getElementById('missingValues').textContent = stats.missingValues;
-        document.getElementById('duplicateRows').textContent = stats.duplicateRows;
-        
-        // Create charts
-        this.createDataQualityChart(stats);
-        this.createColumnTypesChart(stats);
-        this.createMissingValuesChart(stats);
-        
-        // Populate target selection dropdown
-        this.populateTargetSelection(columns);
-    }
+    // EDA methods moved to Python backend - see /process_eda endpoint
+    // Client-side methods removed for efficiency and security
     
     createEDAChartsFromBackend(stats) {
         // Create data quality chart
@@ -500,8 +479,10 @@ class AutoMLApp {
             this.missingChartInstance = null;
         }
         
-        const columns = Object.keys(stats.missing || {});
-        const missingCounts = columns.map(col => stats.missing[col] || 0);
+        // Use the correct structure from backend: stats.missing
+        const missing = stats.missing || {};
+        const columns = Object.keys(missing);
+        const missingCounts = columns.map(col => missing[col] || 0);
         
         this.missingChartInstance = new Chart(ctx.getContext('2d'), {
             type: 'bar',
@@ -537,149 +518,13 @@ class AutoMLApp {
             }
         });
     }
-    
-    calculateDatasetStats(columns) {
-        let numericColumns = 0;
-        let categoricalColumns = 0;
-        let missingValues = 0;
-        const columnMissing = {};
-        
-        columns.forEach(col => {
-            let missing = 0;
-            let isNumeric = true;
-            
-            this.currentData.forEach(row => {
-                const value = row[col];
-                if (value === null || value === undefined || value === '') {
-                    missing++;
-                    missingValues++;
-                } else if (isNumeric && isNaN(parseFloat(value))) {
-                    isNumeric = false;
-                }
-            });
-            
-            columnMissing[col] = missing;
-            
-            if (isNumeric) {
-                numericColumns++;
-            } else {
-                categoricalColumns++;
-            }
-        });
-        
-        // Calculate duplicate rows (simplified)
-        const duplicateRows = Math.floor(Math.random() * 5);
-        
-        return {
-            numericColumns,
-            categoricalColumns,
-            missingValues,
-            duplicateRows,
-            columnMissing
-        };
-    }
-    
-    createDataQualityChart(stats) {
-        const ctx = document.getElementById('qualityChart').getContext('2d');
-        
-        new Chart(ctx, {
-            type: 'doughnut',
-            data: {
-                labels: ['Complete Data', 'Missing Values', 'Duplicate Rows'],
-                datasets: [{
-                    data: [
-                        this.currentData.length * Object.keys(this.currentData[0]).length - stats.missingValues,
-                        stats.missingValues,
-                        stats.duplicateRows
-                    ],
-                    backgroundColor: ['#1FB8CD', '#FFC185', '#B4413C']
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: {
-                        position: 'bottom'
-                    }
-                }
-            }
-        });
-    }
-    
-    createColumnTypesChart(stats) {
-        const ctx = document.getElementById('typesChart').getContext('2d');
-        
-        new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels: ['Numeric', 'Categorical'],
-                datasets: [{
-                    label: 'Number of Columns',
-                    data: [stats.numericColumns, stats.categoricalColumns],
-                    backgroundColor: ['#1FB8CD', '#FFC185']
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: {
-                        display: false
-                    }
-                },
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        ticks: {
-                            stepSize: 1
-                        }
-                    }
-                }
-            }
-        });
-    }
-    
-    createMissingValuesChart(stats) {
-        const ctx = document.getElementById('missingChart').getContext('2d');
-        const columns = Object.keys(stats.columnMissing);
-        const missingCounts = columns.map(col => stats.columnMissing[col]);
-        
-        new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels: columns,
-                datasets: [{
-                    label: 'Missing Values',
-                    data: missingCounts,
-                    backgroundColor: '#B4413C'
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: {
-                        display: false
-                    }
-                },
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        ticks: {
-                            stepSize: 1
-                        }
-                    },
-                    x: {
-                        ticks: {
-                            maxRotation: 45
-                        }
-                    }
-                }
-            }
-        });
-    }
-    
+
+    // OLD CLIENT-SIDE METHODS REMOVED - Now handled by Python backend for better accuracy and security
+    // - calculateDatasetStats() -> Replaced by Python backend analysis  
+    // - createDataQualityChart() -> Replaced by createDataQualityChartFromStats()
+    // - createColumnTypesChart() -> Replaced by createColumnTypesChartFromStats()
+    // - createMissingValuesChart() -> Replaced by createMissingValuesChartFromStats()
+
     populateTargetSelection(columns, defaultTarget = null, defaultPtype = null) {
         const targetSelect = document.getElementById('targetSelect');
         const problemTypeSelect = document.getElementById('problemTypeSelect');
@@ -731,25 +576,77 @@ class AutoMLApp {
     analyzeTarget() {
         if (!this.targetColumn) return;
         
-        // First try to get data from session
-        if (this.currentData && this.currentData.length > 0) {
-            this.analyzeTargetFromClient();
-        } else {
-            // Fallback: fetch data from preview endpoint
-            fetch('/data_preview')
-            .then(response => response.json())
-            .then(data => {
-                if (data && data.data) {
-                    this.currentData = data.data;
-                    this.analyzeTargetFromClient();
-                } else {
-                    console.error('No data available for target analysis');
-                }
+        // Use Python backend for target analysis (moved from JavaScript)
+        fetch('/analyze_target', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                target: this.targetColumn
             })
-            .catch(error => {
-                console.error('Error fetching data for target analysis:', error);
-            });
+        })
+        .then(response => response.json())
+        .then(result => {
+            if (result.success) {
+                // Use backend analysis results
+                this.displayTargetAnalysisFromBackend(result);
+            } else {
+                console.error('Target analysis failed:', result.error);
+                // Fallback to client-side analysis
+                this.analyzeTargetFromClient();
+            }
+        })
+        .catch(error => {
+            console.error('Error in target analysis:', error);
+            // Fallback to client-side analysis
+            this.analyzeTargetFromClient();
+        });
+    }
+    
+    displayTargetAnalysisFromBackend(result) {
+        // Update problem type from backend analysis
+        this.problemType = result.detected_type;
+        
+        // Update UI elements
+        const problemTypeSelect = document.getElementById('problemTypeSelect');
+        const detectedTypeElement = document.getElementById('detectedType');
+        const targetPreview = document.getElementById('targetPreview');
+        const targetStats = document.getElementById('targetStats');
+        
+        if (problemTypeSelect) problemTypeSelect.value = result.detected_type;
+        if (detectedTypeElement) {
+            detectedTypeElement.textContent = `Auto-detected: ${result.detected_type.charAt(0).toUpperCase() + result.detected_type.slice(1)} (${result.type_confidence} confidence)`;
+            detectedTypeElement.className = 'status status--success';
         }
+        
+        // Show target preview with backend data
+        if (targetStats) {
+            targetStats.innerHTML = `
+                <div class="stat-item">
+                    <span class="stat-label">Unique Values:</span>
+                    <span class="stat-value">${result.unique_count}</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Missing Values:</span>
+                    <span class="stat-value">${result.missing_count} (${result.missing_percentage}%)</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Data Type:</span>
+                    <span class="stat-value">${result.data_type}</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Total Rows:</span>
+                    <span class="stat-value">${result.total_rows}</span>
+                </div>
+            `;
+        }
+        
+        if (targetPreview) targetPreview.classList.remove('hidden');
+        
+        // Enable training button
+        const startBtn = document.getElementById('startTrainingBtn');
+        if (startBtn) startBtn.disabled = false;
     }
     
     analyzeTargetFromBackend(stats) {
@@ -872,7 +769,7 @@ class AutoMLApp {
     
     startTraining() {
         // Show loading modal
-        this.showModal('loadingModal', 'Training models...');
+        this.showModal('loadingModal', 'Validating configuration...');
         
         // Prepare config data
         const config = {
@@ -881,9 +778,43 @@ class AutoMLApp {
             split: document.getElementById('splitRatio').value / 100
         };
         
-        console.log('Sending training request with:', config);
+        console.log('Validating training configuration:', config);
         
-        // Send config to Flask backend (backend will use uploaded file)
+        // First validate configuration with Python backend
+        fetch('/validate_training_config', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                target: config.target,
+                ptype: config.ptype,
+                split_ratio: config.split
+            })
+        })
+        .then(response => response.json())
+        .then(validationResult => {
+            if (validationResult.success && validationResult.validation_result.valid) {
+                // Configuration is valid, proceed with training
+                this.showModal('loadingModal', 'Training models...');
+                return this.performTraining(config);
+            } else {
+                // Configuration is invalid
+                const errors = validationResult.validation_result.errors.join('; ');
+                throw new Error(`Configuration validation failed: ${errors}`);
+            }
+        })
+        .catch(error => {
+            console.error('Training validation error:', error);
+            this.hideModal('loadingModal');
+            alert('Training validation failed: ' + error.message);
+        });
+    }
+    
+    performTraining(config) {
+        console.log('Starting training with validated config:', config);
+        
+        // Send config to Flask backend for training
         fetch('/train', {
             method: 'POST',
             headers: {
