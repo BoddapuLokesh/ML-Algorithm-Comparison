@@ -148,7 +148,7 @@ def process_eda():
             'target': target,
             'ptype': ptype,
             'columns': list(df.columns),
-            'message': 'EDA analysis completed successfully!'
+            'message': 'EDA completed successfully!'
         })
         
     except Exception as e:
