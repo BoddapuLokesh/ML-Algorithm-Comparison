@@ -62,11 +62,13 @@ Notes
 
 ## Usage workflow
 
-1) Upload a dataset to see a safe (escaped) server-generated preview
-2) Click Analyze Dataset to run EDA and get dataset stats and charts
-3) Pick target column; the app suggests problem type automatically
-4) Validate and start training; compare models and metrics
-5) Export results CSV or download the best model (.joblib)
+1) Upload a dataset and you will see a preview with all columns and some rows.
+2) Click Analyze Dataset to run EDA and get dataset stats and charts.
+3) Pick target column for prediction.
+4) The app suggests problem type automatically, which can be overriden by user if needed.
+5) Validate and start training.
+6) The application compare models and metrics and results in comparision of all models and feature importance of attributes.
+7) Export results CSV or download the best model (.joblib).
 
 ## API endpoints (selected)
 
