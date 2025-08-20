@@ -1,14 +1,13 @@
 import os
 import uuid
 import pandas as pd
-from flask import Flask, render_template, request, redirect, url_for, session, send_file, jsonify
+from flask import Flask, render_template, request, session, send_file, jsonify
 from werkzeug.utils import secure_filename
 from model_utils import (
-    detect_target_and_type, train_models, allowed_file,
-    validate_file_upload, analyze_target_column, generate_data_preview_html,
+    detect_target_and_type, train_models, validate_file_upload, analyze_target_column, generate_data_preview_html,
     get_enhanced_eda_stats, validate_training_config, calculate_split_percentages
 )
-from joblib import load, dump
+from joblib import dump
 
 UPLOAD_FOLDER = 'uploads'
 ALLOWED_EXTENSIONS = {'csv', 'xlsx', 'xls'}
