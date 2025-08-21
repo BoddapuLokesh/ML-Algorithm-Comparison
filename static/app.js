@@ -332,8 +332,7 @@ class AutoMLApp {
                 // Navigate to EDA section
                 this.navigateToStep('eda');
                 
-                // Show success message
-                this.showModal('successModal', result.message || 'EDA analysis completed!');
+                // Do not show success modal after EDA (removed per request)
             } else {
                 console.error('EDA processing failed:', result.error);
                 alert('Error processing EDA: ' + result.error);
