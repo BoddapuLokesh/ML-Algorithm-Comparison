@@ -98,16 +98,18 @@ def perform_eda(df):
                 "title": f"Top Categories in {col}"
             })
 
-    # Correlation data for numeric columns
+    # Correlation data for numeric columns (cap to first 25 numeric columns to avoid large payloads)
     correlation_data = {}
     if len(numeric_cols) >= 2:
         try:
-            corr_matrix = df[numeric_cols].corr()
-            # Convert to format suitable for heatmap with safe JSON conversion
+            capped_cols = numeric_cols[:25]
+            corr_matrix = df[capped_cols].corr()
             correlation_data = {
-                'columns': numeric_cols,
+                'columns': capped_cols,
                 'values': [[safe_json_convert(x) for x in row] for row in corr_matrix.values.tolist()]
             }
+            if len(numeric_cols) > 25:
+                correlation_data['truncated'] = True
         except Exception as e:
             print(f"Error calculating correlation: {e}")
             correlation_data = {}
@@ -252,200 +254,132 @@ def preprocess_data(df, target):
     return X, y
 
 def train_models(df, target, problem_type, split_ratio):
+    """Train a suite of baseline models with light optimizations.
+
+    Performance-oriented changes:
+    - Optional sampling for very large datasets (>100k rows)
+    - Lean model configurations (low n_estimators, capped depths)
+    - Single StandardScaler reused for kernel models
+    - Timeout guard per model (60s large / 120s small)
+    """
+    # Validate input
+    print(f"Starting training with target: {target}, problem_type: {problem_type}")
+    if target not in df.columns:
+        raise ValueError(f"Target column '{target}' not found in dataset")
+    if df[target].isna().all():
+        raise ValueError(f"Target column '{target}' has no valid values")
+
+    X, y = preprocess_data(df, target)
+    if X.empty:
+        raise ValueError("No features available after preprocessing")
+
     try:
-        # Validate input data
-        print(f"Starting training with target: {target}, problem_type: {problem_type}")
-        if target not in df.columns:
-            raise ValueError(f"Target column '{target}' not found in dataset")
-        
-        if df[target].isna().all():
-            raise ValueError(f"Target column '{target}' has no valid values")
-        
-        X, y = preprocess_data(df, target)
-        
-        # Validate preprocessed data
-        if X.empty:
-            raise ValueError("No features available after preprocessing")
-        
-        # Check unique values in target for validation
+        unique_y_count = len(set(y))  # type: ignore
+    except Exception:
+        unique_y_count = 2  # fallback minimal
+    if unique_y_count < 2 and problem_type in ['binary', 'multiclass']:
+        raise ValueError(f"Target has only {unique_y_count} unique values, cannot perform classification")
+
+    print(f"Training data: X shape: {X.shape}, y unique values: {unique_y_count}")
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=1-split_ratio, random_state=42)
+
+    # Sampling for massive datasets
+    if X_train.shape[0] > 100000:
+        sample_size = min(50000, X_train.shape[0])
+        sample_idx = np.random.choice(X_train.shape[0], sample_size, replace=False)
+        X_train_sampled = X_train.iloc[sample_idx]
+        y_train_sampled = y_train.iloc[sample_idx]
+        print(f"Sampled training set: {sample_size} rows")
+    else:
+        X_train_sampled, y_train_sampled = X_train, y_train
+
+    is_large_dataset = X_train.shape[0] > 50000
+    if problem_type == 'regression':
+        model_configs = [
+            ("LinearRegression", LinearRegression()),
+            ("RandomForestRegressor", RandomForestRegressor(random_state=42, n_estimators=10, max_depth=10 if is_large_dataset else None)),
+            ("GradientBoostingRegressor", GradientBoostingRegressor(random_state=42, n_estimators=10, max_depth=3 if is_large_dataset else 3)),
+            ("SVR", SVR(kernel='linear' if is_large_dataset else 'rbf', C=1.0, max_iter=1000 if is_large_dataset else -1)),
+            ("DecisionTreeRegressor", DecisionTreeRegressor(random_state=42, max_depth=5))
+        ]
+    else:
+        model_configs = [
+            ("LogisticRegression", LogisticRegression(max_iter=1000, random_state=42)),
+            ("RandomForestClassifier", RandomForestClassifier(random_state=42, n_estimators=10, max_depth=10 if is_large_dataset else None)),
+            ("GradientBoostingClassifier", GradientBoostingClassifier(random_state=42, n_estimators=10, max_depth=3 if is_large_dataset else 3)),
+            ("SVC", SVC(kernel='linear' if is_large_dataset else 'rbf', C=1.0, probability=True, random_state=42, max_iter=1000 if is_large_dataset else -1)),
+            ("DecisionTreeClassifier", DecisionTreeClassifier(random_state=42, max_depth=5))
+        ]
+
+    models = {}
+    all_metrics = {}
+    best_model_name = None
+    best_score = -np.inf
+    scaler = None
+    timeout = 60 if is_large_dataset else 120
+
+    for name, model in model_configs:
         try:
-            unique_y_count = len(set(y))  # type: ignore
-        except (TypeError, ValueError):
-            # If y is not hashable or iterable, try converting
-            try:
-                if hasattr(y, 'tolist'):
-                    unique_y_count = len(set(y.tolist()))  # type: ignore
-                else:
-                    unique_y_count = len(set(list(y)))  # type: ignore
-            except:
-                unique_y_count = 2  # Assume it's valid if we can't check
-        
-        if unique_y_count < 2 and problem_type in ['binary', 'multiclass']:
-            raise ValueError(f"Target has only {unique_y_count} unique values, cannot perform classification")
-        
-        print(f"Training data: X shape: {X.shape}, y unique values: {unique_y_count}")
-        
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=1-split_ratio, random_state=42)
-        
-        # For very large datasets (>100k samples), provide option to sample for faster training
-        if X_train.shape[0] > 100000:
-            print(f"Large dataset detected ({X_train.shape[0]} samples). Using sampling for faster training.")
-            sample_size = min(50000, X_train.shape[0])  # Sample up to 50k rows
-            sample_indices = np.random.choice(X_train.shape[0], sample_size, replace=False)
-            X_train_sampled = X_train.iloc[sample_indices] if hasattr(X_train, 'iloc') else X_train[sample_indices]
-            y_train_sampled = y_train.iloc[sample_indices] if hasattr(y_train, 'iloc') else y_train[sample_indices]
-            print(f"Training on sampled dataset: {X_train_sampled.shape[0]} samples")
-        else:
-            X_train_sampled = X_train
-            y_train_sampled = y_train
-            
-        results = []
-        models = {}
-
-        # For large datasets (>50k samples), use optimized configurations
-        is_large_dataset = X_train.shape[0] > 50000
-        
-        # Select models based on problem type
-        if problem_type == 'regression':
-            if is_large_dataset:
-                # Use linear SVR for large datasets - much faster
-                model_configs = [
-                    ("LinearRegression", LinearRegression()),
-                    ("RandomForestRegressor", RandomForestRegressor(random_state=42, n_estimators=10, max_depth=10)),
-                    ("GradientBoostingRegressor", GradientBoostingRegressor(random_state=42, n_estimators=10, max_depth=3)),
-                    ("LinearSVR", SVR(kernel='linear', C=1.0, max_iter=1000)),
-                    ("DecisionTreeRegressor", DecisionTreeRegressor(random_state=42, max_depth=5))
-                ]
+            needs_scale = any(k in name for k in ['SVC', 'SVR'])
+            if needs_scale:
+                if scaler is None:
+                    scaler = StandardScaler().fit(X_train_sampled)
+                X_train_model = scaler.transform(X_train_sampled)
+                X_test_model = scaler.transform(X_test)
             else:
-                # Use RBF SVR for smaller datasets
-                model_configs = [
-                    ("LinearRegression", LinearRegression()),
-                    ("RandomForestRegressor", RandomForestRegressor(random_state=42, n_estimators=10)),
-                    ("GradientBoostingRegressor", GradientBoostingRegressor(random_state=42, n_estimators=10)),
-                    ("SVR", SVR(kernel='rbf', C=1.0, gamma='scale')),
-                    ("DecisionTreeRegressor", DecisionTreeRegressor(random_state=42, max_depth=5))
-                ]
-        else:
-            if is_large_dataset:
-                # Use linear SVC for large datasets - much faster
-                model_configs = [
-                    ("LogisticRegression", LogisticRegression(max_iter=1000, random_state=42)),
-                    ("RandomForestClassifier", RandomForestClassifier(random_state=42, n_estimators=10, max_depth=10)),
-                    ("GradientBoostingClassifier", GradientBoostingClassifier(random_state=42, n_estimators=10, max_depth=3)),
-                    ("LinearSVC", SVC(kernel='linear', C=1.0, random_state=42, probability=True, max_iter=1000)),
-                    ("DecisionTreeClassifier", DecisionTreeClassifier(random_state=42, max_depth=5))
-                ]
-            else:
-                # Use RBF SVC for smaller datasets
-                model_configs = [
-                    ("LogisticRegression", LogisticRegression(max_iter=1000, random_state=42)),
-                    ("RandomForestClassifier", RandomForestClassifier(random_state=42, n_estimators=10)),
-                    ("GradientBoostingClassifier", GradientBoostingClassifier(random_state=42, n_estimators=10)),
-                    ("SVC", SVC(kernel='rbf', C=1.0, gamma='scale', random_state=42, probability=True)),
-                    ("DecisionTreeClassifier", DecisionTreeClassifier(random_state=42, max_depth=5))
-                ]
+                X_train_model, X_test_model = X_train_sampled, X_test
 
-        best_score = -np.inf
-        best_model_name = None
-        all_metrics = {}
-
-        for name, model in model_configs:
-            try:
-                print(f"Training {name}...")
-                
-                # Scale features for SVR/SVC models (they are sensitive to feature scales)
-                if 'SVR' in name or 'SVC' in name:
-                    scaler = StandardScaler()
-                    X_train_scaled = scaler.fit_transform(X_train_sampled)
-                    X_test_scaled = scaler.transform(X_test)
-                    X_train_model = X_train_scaled
-                    X_test_model = X_test_scaled
-                    y_train_model = y_train_sampled
-                else:
-                    X_train_model = X_train_sampled
-                    X_test_model = X_test
-                    y_train_model = y_train_sampled
-                
-                # Track training time with timeout
-                start_time = time.time()
-                
-                # Set timeout based on dataset size
-                timeout = 60 if is_large_dataset else 120  # 1-2 minutes max
-                
-                try:
-                    model.fit(X_train_model, y_train_model)
-                    training_time = time.time() - start_time
-                    
-                    # Skip if training took too long
-                    if training_time > timeout:
-                        print(f"{name} training timeout ({training_time:.1f}s > {timeout}s), skipping...")
-                        continue
-                        
-                except Exception as fit_error:
-                    print(f"Error fitting {name}: {str(fit_error)}")
-                    continue
-                
-                preds = model.predict(X_test_model)
-                
-                if problem_type == 'regression':
-                    score = r2_score(y_test, preds)  # Use R² as primary metric
-                    metrics = {
-                        "MSE": safe_json_convert(mean_squared_error(y_test, preds)),
-                        "R^2": safe_json_convert(score),
-                        "Training_Time": round(training_time, 3)
-                    }
-                else:
-                    score = accuracy_score(y_test, preds)
-                    metrics = {
-                        "Accuracy": safe_json_convert(score),
-                        "Precision": safe_json_convert(precision_score(y_test, preds, average='weighted', zero_division=0)),
-                        "Recall": safe_json_convert(recall_score(y_test, preds, average='weighted', zero_division=0)),
-                        "F1": safe_json_convert(f1_score(y_test, preds, average='weighted', zero_division=0)),
-                        "Training_Time": round(training_time, 3)
-                    }
-                    
-                results.append((name, model, score))
-                models[name] = model
-                all_metrics[name] = metrics
-                print(f"{name} trained successfully with score: {score:.3f} (Time: {training_time:.3f}s)")
-
-                if score > best_score:
-                    best_score = score
-                    best_model_name = name
-                    
-            except Exception as e:
-                print(f"Error training {name}: {str(e)}")
+            start = time.time()
+            model.fit(X_train_model, y_train_sampled)
+            t_elapsed = time.time() - start
+            if t_elapsed > timeout:
+                print(f"{name} exceeded timeout ({t_elapsed:.1f}s) - skipped")
                 continue
 
-        if not models:
-            raise Exception("No models were successfully trained")
+            preds = model.predict(X_test_model)
+            if problem_type == 'regression':
+                score = r2_score(y_test, preds)
+                metrics = {"MSE": safe_json_convert(mean_squared_error(y_test, preds)), "R^2": safe_json_convert(score), "Training_Time": round(t_elapsed, 3)}
+            else:
+                score = accuracy_score(y_test, preds)
+                metrics = {
+                    "Accuracy": safe_json_convert(score),
+                    "Precision": safe_json_convert(precision_score(y_test, preds, average='weighted', zero_division=0)),
+                    "Recall": safe_json_convert(recall_score(y_test, preds, average='weighted', zero_division=0)),
+                    "F1": safe_json_convert(f1_score(y_test, preds, average='weighted', zero_division=0)),
+                    "Training_Time": round(t_elapsed, 3)
+                }
+            models[name] = model
+            all_metrics[name] = metrics
+            if score > best_score:
+                best_score = score
+                best_model_name = name
+            print(f"{name} OK score={score:.3f} time={t_elapsed:.2f}s")
+        except Exception as e:
+            print(f"Error training {name}: {e}")
+            continue
 
-        # Feature importance (for tree/random forest) with safe JSON conversion
-        feature_importance = {}
-        for name, model in models.items():
-            try:
-                if hasattr(model, "feature_importances_"):
-                    imp = model.feature_importances_
-                    feature_importance[name] = {col: safe_json_convert(importance) for col, importance in zip(X.columns, imp)}
-                elif hasattr(model, "coef_"):
-                    vals = model.coef_
-                    coefs = vals[0] if len(vals.shape) > 1 else vals
-                    feature_importance[name] = {col: safe_json_convert(abs(coef)) for col, coef in zip(X.columns, coefs)}
-                else:
-                    feature_importance[name] = {}
-            except Exception as e:
-                print(f"Error extracting feature importance for {name}: {str(e)}")
+    if not models:
+        raise RuntimeError("No models trained successfully")
+
+    # Feature importance extraction
+    feature_importance = {}
+    for name, model in models.items():
+        try:
+            if hasattr(model, 'feature_importances_'):
+                feature_importance[name] = {c: safe_json_convert(v) for c, v in zip(X.columns, model.feature_importances_)}
+            elif hasattr(model, 'coef_'):
+                coefs = model.coef_[0] if getattr(model.coef_, 'ndim', 1) > 1 else model.coef_
+                feature_importance[name] = {c: safe_json_convert(abs(v)) for c, v in zip(X.columns, coefs)}
+            else:
                 feature_importance[name] = {}
+        except Exception as e:
+            print(f"Importance extraction failed for {name}: {e}")
+            feature_importance[name] = {}
 
-        # Prepare results for frontend
-        all_results = [{"model": k, "metrics": v} for k, v in all_metrics.items()]
-        metrics = all_metrics[best_model_name] if best_model_name else {}
-
-        return models, best_model_name, metrics, feature_importance, all_results
-        
-    except Exception as e:
-        print(f"Error in train_models: {str(e)}")
-        raise
+    metrics = all_metrics.get(best_model_name, {}) if best_model_name else {}
+    all_results = [{"model": m, "metrics": metr} for m, metr in all_metrics.items()]
+    return models, best_model_name, metrics, feature_importance, all_results
 
 def validate_file_upload(file):
     """Enhanced file validation moved from JavaScript"""

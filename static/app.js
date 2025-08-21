@@ -1078,92 +1078,7 @@ class AutoMLApp {
         }
     }
     
-    createFeatureImportanceChart() {
-        console.log('createFeatureImportanceChart called');
-        
-        // Check if Chart.js is available
-        if (typeof Chart === 'undefined') {
-            console.error('Chart.js is not loaded');
-            return;
-        }
-        
-        const chartCanvas = document.getElementById('featureImportanceChart');
-        console.log('Feature importance canvas:', chartCanvas);
-        console.log('Best model:', this.bestModel);
-        console.log('Feature importance data:', this.featureImportance);
-        
-        if (!chartCanvas) {
-            console.error('Feature importance chart canvas not found');
-            return;
-        }
-        
-        if (!this.featureImportance || !this.bestModel) {
-            console.error('Feature importance data not available');
-            return;
-        }
-        
-        // Destroy existing chart if any
-        if (this.featureImportanceChartInstance) {
-            this.featureImportanceChartInstance.destroy();
-            this.featureImportanceChartInstance = null;
-        }
-        
-        const ctx = chartCanvas.getContext('2d');
-        
-        // Get feature importance for the best model
-        const bestModelName = this.bestModel.name;
-        const importanceData = this.featureImportance[bestModelName] || {};
-        
-        if (Object.keys(importanceData).length === 0) {
-            console.log('No feature importance data available for model:', bestModelName);
-            // Show message instead of chart
-            const container = chartCanvas.parentElement;
-            container.innerHTML = '<p class="text-gray-500">No feature importance data available for this model.</p>';
-            return;
-        }
-        
-        // Convert to arrays and sort by importance
-        const features = Object.entries(importanceData)
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 10); // Top 10 features
-            
-        const labels = features.map(f => f[0]);
-        const data = features.map(f => f[1]);
-        
-        console.log('Feature importance chart data:', { labels, data });
-        
-        try {
-            this.featureImportanceChartInstance = new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: labels,
-                    datasets: [{
-                        label: 'Feature Importance',
-                        data: data,
-                        backgroundColor: '#1FB8CD'
-                    }]
-                },
-                options: {
-                    indexAxis: 'y', // This makes it horizontal
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: {
-                            display: false
-                        }
-                    },
-                    scales: {
-                        x: {
-                            beginAtZero: true
-                        }
-                    }
-                }
-            });
-            console.log('Feature importance chart created successfully');
-        } catch (error) {
-            console.error('Error creating feature importance chart:', error);
-        }
-    }
+    // (Removed earlier duplicate createFeatureImportanceChart; unified optional-param version below)
     
     updateMetricsTable(allResults) {
         const tbody = document.getElementById('metricsTableBody');
@@ -1198,65 +1113,24 @@ class AutoMLApp {
         }).join('');
     }
     
-    createFeatureImportanceChart(featureImportance, bestModelName) {
-        if (!featureImportance || !bestModelName || !featureImportance[bestModelName]) {
-            console.log('No feature importance data available');
+    createFeatureImportanceChart(featureImportance = null, bestModelName = null) {
+        const fi = featureImportance || this.featureImportance;
+        const model = bestModelName || (this.bestModel && this.bestModel.name);
+        const canvas = document.getElementById('featureImportanceChart');
+        if (!fi || !model || !fi[model] || !canvas) {
+            console.warn('No feature importance data available');
             return;
         }
-        
-        const ctx = document.getElementById('featureImportanceChart');
-        if (!ctx) return;
-        
         try {
-            // Destroy existing chart if any
-            if (this.featureImportanceChartInstance) {
-                this.featureImportanceChartInstance.destroy();
-            }
-            
-            const importance = featureImportance[bestModelName];
-            const features = Object.keys(importance);
-            const values = Object.values(importance);
-            
-            // Sort by importance
-            const sortedData = features.map((feature, index) => ({
-                feature,
-                value: values[index]
-            })).sort((a, b) => b.value - a.value).slice(0, 10); // Top 10 features
-            
-            this.featureImportanceChartInstance = new Chart(ctx.getContext('2d'), {
+            if (this.featureImportanceChartInstance) this.featureImportanceChartInstance.destroy();
+            const importance = fi[model];
+            const sorted = Object.entries(importance).sort((a,b)=>b[1]-a[1]).slice(0,10);
+            this.featureImportanceChartInstance = new Chart(canvas.getContext('2d'), {
                 type: 'bar',
-                data: {
-                    labels: sortedData.map(d => d.feature),
-                    datasets: [{
-                        label: 'Feature Importance',
-                        data: sortedData.map(d => d.value),
-                        backgroundColor: '#1FB8CD',
-                        borderColor: '#1FB8CD',
-                        borderWidth: 1
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: {
-                            display: false
-                        }
-                    },
-                    scales: {
-                        x: {
-                            beginAtZero: true
-                        },
-                        y: {
-                            beginAtZero: true
-                        }
-                    }
-                }
+                data: { labels: sorted.map(d=>d[0]), datasets: [{ label: 'Feature Importance', data: sorted.map(d=>d[1]), backgroundColor: '#1FB8CD', borderColor: '#1FB8CD', borderWidth: 1 }] },
+                options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true } } }
             });
-            console.log('Feature importance chart created successfully');
-        } catch (error) {
-            console.error('Error creating feature importance chart:', error);
-        }
+        } catch (e) { console.error('Error creating feature importance chart:', e); }
     }
     
     exportResults() {
