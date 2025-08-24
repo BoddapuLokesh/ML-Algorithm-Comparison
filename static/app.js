@@ -71,6 +71,7 @@ class AutoMLApp {
             { id: 'viewResultsBtn', handler: () => this.navigateToStep('results') },
             { id: 'backToConfigBtn', handler: () => this.navigateToStep('config') },
             { id: 'resetBtn', handler: this.resetApplication.bind(this) },
+            { id: 'downloadModelBtn', handler: this.downloadModel.bind(this) },
             { id: 'exportResultsBtn', handler: this.exportResults.bind(this) }
         ];
         
@@ -1130,6 +1131,13 @@ class AutoMLApp {
                 options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true } } }
             });
         } catch (e) { console.error('Error creating feature importance chart:', e); }
+    }
+    
+    downloadModel() {
+        console.log('Downloading model package...');
+        
+        // Use backend download endpoint for complete model package
+        window.location.href = '/download_model';
     }
     
     exportResults() {

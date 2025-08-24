@@ -202,19 +202,27 @@ def preprocess_data(df, target):
     X = X.dropna(axis=1, how='all')
     print(f"After removing empty columns, X shape: {X.shape}")
     
-    # Encode categorical columns
+    # Encode categorical columns and save encoders
     X = X.copy()
     categorical_columns = []
+    feature_encoders = {}  # Store feature encoders
+    
     for col in X.select_dtypes(include='object'):
         if X[col].notna().any():  # Only encode if column has non-null values
-            X[col] = LabelEncoder().fit_transform(X[col].astype(str))
+            encoder = LabelEncoder()
+            X[col] = encoder.fit_transform(X[col].astype(str))
+            feature_encoders[col] = encoder  # Save the encoder
             categorical_columns.append(col)
     
-    # Encode target if it's categorical
+    # Encode target if it's categorical and save encoder
+    target_encoder = None
     if y.dtype == 'object':
-        y = LabelEncoder().fit_transform(y.astype(str))
+        target_encoder = LabelEncoder()
+        y = target_encoder.fit_transform(y.astype(str))
     
-    # Handle missing values with SimpleImputer
+    # Handle missing values with SimpleImputer and save imputers
+    imputers = {}
+    
     if X.select_dtypes(include='number').shape[1] > 0:  # If there are numeric columns
         # Separate numeric and categorical columns for different imputation strategies
         numeric_cols = X.select_dtypes(include='number').columns
@@ -222,15 +230,19 @@ def preprocess_data(df, target):
         
         if len(numeric_cols) > 0:
             # Impute numeric columns with mean
-            X_numeric = SimpleImputer(strategy='mean').fit_transform(X[numeric_cols])
+            numeric_imputer = SimpleImputer(strategy='mean')
+            X_numeric = numeric_imputer.fit_transform(X[numeric_cols])
             X_numeric_df = pd.DataFrame(X_numeric, columns=numeric_cols, index=X.index)
+            imputers['numeric'] = numeric_imputer
         else:
             X_numeric_df = pd.DataFrame(index=X.index)
             
         if len(categorical_cols) > 0:
             # Impute categorical columns with most frequent value
-            X_categorical = SimpleImputer(strategy='most_frequent').fit_transform(X[categorical_cols])
+            categorical_imputer = SimpleImputer(strategy='most_frequent')
+            X_categorical = categorical_imputer.fit_transform(X[categorical_cols])
             X_categorical_df = pd.DataFrame(X_categorical, columns=categorical_cols, index=X.index)
+            imputers['categorical'] = categorical_imputer
         else:
             X_categorical_df = pd.DataFrame(index=X.index)
         
@@ -245,13 +257,23 @@ def preprocess_data(df, target):
             raise ValueError("No valid columns found after preprocessing")
     else:
         # If no numeric columns, use most_frequent strategy for all
-        X = pd.DataFrame(SimpleImputer(strategy='most_frequent').fit_transform(X), 
+        general_imputer = SimpleImputer(strategy='most_frequent')
+        X = pd.DataFrame(general_imputer.fit_transform(X), 
                         columns=X.columns, index=X.index)
+        imputers['general'] = general_imputer
     
     print(f"Final preprocessed X shape: {X.shape}")
     print("Preprocessing completed successfully")
     
-    return X, y
+    # Return data along with all preprocessing artifacts
+    preprocessing_artifacts = {
+        'feature_encoders': feature_encoders,
+        'target_encoder': target_encoder, 
+        'imputers': imputers,
+        'feature_columns': list(X.columns)
+    }
+    
+    return X, y, preprocessing_artifacts
 
 def train_models(df, target, problem_type, split_ratio):
     """Train a suite of baseline models with full dataset training.
@@ -269,7 +291,7 @@ def train_models(df, target, problem_type, split_ratio):
     if df[target].isna().all():
         raise ValueError(f"Target column '{target}' has no valid values")
 
-    X, y = preprocess_data(df, target)
+    X, y, preprocessing_artifacts = preprocess_data(df, target)
     if X.empty:
         raise ValueError("No features available after preprocessing")
 
@@ -374,7 +396,8 @@ def train_models(df, target, problem_type, split_ratio):
 
     metrics = all_metrics.get(best_model_name, {}) if best_model_name else {}
     all_results = [{"model": m, "metrics": metr} for m, metr in all_metrics.items()]
-    return models, best_model_name, metrics, feature_importance, all_results
+    
+    return models, best_model_name, metrics, feature_importance, all_results, preprocessing_artifacts
 
 def validate_file_upload(file):
     """Enhanced file validation moved from JavaScript"""
@@ -429,6 +452,63 @@ def analyze_target_column(df, target_column):
     analysis['type_confidence'] = 'high' if unique_values <= 10 else 'medium'
     
     return analysis
+
+def apply_preprocessing(df, preprocessing_artifacts):
+    """Apply saved preprocessing artifacts to new data for prediction.
+    
+    Args:
+        df: New data DataFrame
+        preprocessing_artifacts: Dict containing saved encoders and imputers
+    
+    Returns:
+        Preprocessed DataFrame ready for prediction
+    """
+    X = df.copy()
+    
+    # Apply feature encoders
+    feature_encoders = preprocessing_artifacts.get('feature_encoders', {})
+    for col, encoder in feature_encoders.items():
+        if col in X.columns and X[col].notna().any():
+            try:
+                X[col] = encoder.transform(X[col].astype(str))
+            except ValueError as e:
+                # Handle unseen categories by using the most frequent class
+                print(f"Warning: Unseen category in {col}, using most frequent class")
+                X[col] = X[col].astype(str)
+                # Map unknown values to the first class in the encoder
+                known_classes = encoder.classes_
+                X[col] = X[col].apply(lambda x: x if x in known_classes else known_classes[0])
+                X[col] = encoder.transform(X[col])
+    
+    # Apply imputers
+    imputers = preprocessing_artifacts.get('imputers', {})
+    
+    if 'numeric' in imputers and 'categorical' in imputers:
+        # Handle case with separate numeric and categorical imputers
+        numeric_cols = X.select_dtypes(include='number').columns
+        categorical_cols = X.select_dtypes(exclude='number').columns
+        
+        if len(numeric_cols) > 0:
+            X[numeric_cols] = imputers['numeric'].transform(X[numeric_cols])
+        if len(categorical_cols) > 0:
+            X[categorical_cols] = imputers['categorical'].transform(X[categorical_cols])
+            
+    elif 'general' in imputers:
+        # Handle case with general imputer
+        X = pd.DataFrame(imputers['general'].transform(X), 
+                        columns=X.columns, index=X.index)
+    
+    # Ensure columns are in the same order as training data
+    expected_columns = preprocessing_artifacts.get('feature_columns', [])
+    if expected_columns:
+        # Add missing columns with zeros
+        for col in expected_columns:
+            if col not in X.columns:
+                X[col] = 0
+        # Reorder columns to match training data
+        X = X[expected_columns]
+    
+    return X
 
 def generate_data_preview_html(preview_data, columns):
     """Generate HTML table server-side for better security"""

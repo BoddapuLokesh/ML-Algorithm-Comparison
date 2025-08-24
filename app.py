@@ -203,15 +203,21 @@ def train():
             print(f"ERROR: Target column '{target}' not found in data")
             return jsonify({'success': False, 'error': f"Target column '{target}' not found in data"})
         
-        models, best_model_name, metrics, feature_importance, all_results = train_models(df, target, ptype, split_ratio)
+        models, best_model_name, metrics, feature_importance, all_results, preprocessing_artifacts = train_models(df, target, ptype, split_ratio)
         print(f"Training completed. Best model: {best_model_name}")
         print(f"Metrics: {metrics}")
         print(f"Number of models trained: {len(models)}")
         
-        # Persist best model
+        # Persist best model with preprocessing artifacts
         model_path = f"{filepath}_bestmodel.joblib"
+        preprocessors_path = f"{filepath}_preprocessors.joblib"
+        
+        # Save the best model and preprocessing artifacts separately
         dump(models[best_model_name], model_path)
+        dump(preprocessing_artifacts, preprocessors_path)
+        
         session['model_path'] = model_path
+        session['preprocessors_path'] = preprocessors_path
         session['best_model_name'] = best_model_name
         session['metrics'] = metrics
         session['feature_importance'] = feature_importance
@@ -440,9 +446,54 @@ def reset_session():
 
 @app.route('/download_model')
 def download_model():
-    """Download the best trained model."""
+    """Download the best trained model with preprocessing artifacts."""
+    import zipfile
+    import tempfile
+    import os
+    
     model_path = session.get('model_path')
-    return send_file(model_path, as_attachment=True) if model_path else "No model saved."
+    preprocessors_path = session.get('preprocessors_path')
+    
+    if not model_path or not preprocessors_path:
+        return "No complete model package available.", 404
+    
+    # Create a temporary zip file containing both model and preprocessors
+    try:
+        temp_dir = tempfile.mkdtemp()
+        zip_path = os.path.join(temp_dir, 'complete_model.zip')
+        
+        with zipfile.ZipFile(zip_path, 'w') as zipf:
+            zipf.write(model_path, 'model.joblib')
+            zipf.write(preprocessors_path, 'preprocessors.joblib')
+            
+            # Add a readme file with usage instructions
+            readme_content = """# AutoML Model Package
+
+This package contains:
+- model.joblib: The trained machine learning model
+- preprocessors.joblib: All preprocessing artifacts (encoders, imputers)
+
+## Usage:
+```python
+from joblib import load
+import pandas as pd
+
+# Load the model and preprocessors
+model = load('model.joblib')
+preprocessors = load('preprocessors.joblib')
+
+# To make predictions on new data:
+# 1. Apply the same preprocessing steps using the saved artifacts
+# 2. Use the model to predict
+```
+"""
+            zipf.writestr('README.md', readme_content)
+        
+        return send_file(zip_path, as_attachment=True, download_name='complete_model.zip')
+        
+    except Exception as e:
+        print(f"Error creating model package: {str(e)}")
+        return f"Error creating model package: {str(e)}", 500
 
 @app.route('/export_results')
 def export_results():
