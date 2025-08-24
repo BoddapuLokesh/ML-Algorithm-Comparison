@@ -254,13 +254,13 @@ def preprocess_data(df, target):
     return X, y
 
 def train_models(df, target, problem_type, split_ratio):
-    """Train a suite of baseline models with light optimizations.
+    """Train a suite of baseline models with full dataset training.
 
     Performance-oriented changes:
-    - Optional sampling for very large datasets (>100k rows)
-    - Lean model configurations (low n_estimators, capped depths)
-    - Single StandardScaler reused for kernel models
-    - Timeout guard per model (60s large / 120s small)
+    - Full dataset training to prevent underfitting (no sampling)
+    - Optimal model configurations with proper n_estimators
+    - Single StandardScaler reused for kernel models  
+    - Extended timeout guard per model (5 minutes)
     """
     # Validate input
     print(f"Starting training with target: {target}, problem_type: {problem_type}")
@@ -283,32 +283,26 @@ def train_models(df, target, problem_type, split_ratio):
     print(f"Training data: X shape: {X.shape}, y unique values: {unique_y_count}")
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=1-split_ratio, random_state=42)
 
-    # Sampling for massive datasets
-    if X_train.shape[0] > 100000:
-        sample_size = min(50000, X_train.shape[0])
-        sample_idx = np.random.choice(X_train.shape[0], sample_size, replace=False)
-        X_train_sampled = X_train.iloc[sample_idx]
-        y_train_sampled = y_train.iloc[sample_idx]
-        print(f"Sampled training set: {sample_size} rows")
-    else:
-        X_train_sampled, y_train_sampled = X_train, y_train
+    # Train on the complete dataset regardless of size to prevent underfitting
+    print(f"Training on complete dataset: {X_train.shape[0]} samples")
+    X_train_full, y_train_full = X_train, y_train
 
-    is_large_dataset = X_train.shape[0] > 50000
+    # Use optimal model configurations for full dataset training
     if problem_type == 'regression':
         model_configs = [
             ("LinearRegression", LinearRegression()),
-            ("RandomForestRegressor", RandomForestRegressor(random_state=42, n_estimators=10, max_depth=10 if is_large_dataset else None)),
-            ("GradientBoostingRegressor", GradientBoostingRegressor(random_state=42, n_estimators=10, max_depth=3 if is_large_dataset else 3)),
-            ("SVR", SVR(kernel='linear' if is_large_dataset else 'rbf', C=1.0, max_iter=1000 if is_large_dataset else -1)),
-            ("DecisionTreeRegressor", DecisionTreeRegressor(random_state=42, max_depth=5))
+            ("RandomForestRegressor", RandomForestRegressor(random_state=42, n_estimators=100)),
+            ("GradientBoostingRegressor", GradientBoostingRegressor(random_state=42, n_estimators=100)),
+            ("SVR", SVR(kernel='rbf', C=1.0, gamma='scale')),
+            ("DecisionTreeRegressor", DecisionTreeRegressor(random_state=42))
         ]
     else:
         model_configs = [
             ("LogisticRegression", LogisticRegression(max_iter=1000, random_state=42)),
-            ("RandomForestClassifier", RandomForestClassifier(random_state=42, n_estimators=10, max_depth=10 if is_large_dataset else None)),
-            ("GradientBoostingClassifier", GradientBoostingClassifier(random_state=42, n_estimators=10, max_depth=3 if is_large_dataset else 3)),
-            ("SVC", SVC(kernel='linear' if is_large_dataset else 'rbf', C=1.0, probability=True, random_state=42, max_iter=1000 if is_large_dataset else -1)),
-            ("DecisionTreeClassifier", DecisionTreeClassifier(random_state=42, max_depth=5))
+            ("RandomForestClassifier", RandomForestClassifier(random_state=42, n_estimators=100)),
+            ("GradientBoostingClassifier", GradientBoostingClassifier(random_state=42, n_estimators=100)),
+            ("SVC", SVC(kernel='rbf', C=1.0, gamma='scale', probability=True, random_state=42)),
+            ("DecisionTreeClassifier", DecisionTreeClassifier(random_state=42))
         ]
 
     models = {}
@@ -316,21 +310,22 @@ def train_models(df, target, problem_type, split_ratio):
     best_model_name = None
     best_score = -np.inf
     scaler = None
-    timeout = 60 if is_large_dataset else 120
+    # Set reasonable timeout for full dataset training
+    timeout = 300  # 5 minutes timeout for full dataset training
 
     for name, model in model_configs:
         try:
             needs_scale = any(k in name for k in ['SVC', 'SVR'])
             if needs_scale:
                 if scaler is None:
-                    scaler = StandardScaler().fit(X_train_sampled)
-                X_train_model = scaler.transform(X_train_sampled)
+                    scaler = StandardScaler().fit(X_train_full)
+                X_train_model = scaler.transform(X_train_full)
                 X_test_model = scaler.transform(X_test)
             else:
-                X_train_model, X_test_model = X_train_sampled, X_test
+                X_train_model, X_test_model = X_train_full, X_test
 
             start = time.time()
-            model.fit(X_train_model, y_train_sampled)
+            model.fit(X_train_model, y_train_full)
             t_elapsed = time.time() - start
             if t_elapsed > timeout:
                 print(f"{name} exceeded timeout ({t_elapsed:.1f}s) - skipped")

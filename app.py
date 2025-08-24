@@ -497,5 +497,5 @@ def cleanup_uploads():
     shutil.rmtree(UPLOAD_FOLDER, ignore_errors=True)
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5002)
+    app.run(host='127.0.0.1', port=5002)
 
