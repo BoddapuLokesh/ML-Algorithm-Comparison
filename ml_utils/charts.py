@@ -51,7 +51,7 @@ def create_feature_importance_chart(feature_importance: Dict[str, Dict[str, floa
         'responsive': True
     }
     
-    return fig.to_html(full_html=False, include_plotlyjs=False, config=config, div_id="featureImportanceChart")
+    return fig.to_html(full_html=False, include_plotlyjs=False, config=config, div_id="featureImportancePlot")
 
 
 def create_model_performance_chart(all_results: Dict[str, Dict[str, Any]]) -> str:
@@ -97,7 +97,7 @@ def create_model_performance_chart(all_results: Dict[str, Dict[str, Any]]) -> st
         'responsive': True
     }
     
-    return fig.to_html(full_html=False, include_plotlyjs=False, config=config, div_id="performanceChart")
+    return fig.to_html(full_html=False, include_plotlyjs=False, config=config, div_id="performancePlot")
 
 
 def create_data_quality_chart(stats: Dict[str, Any]) -> str:
@@ -147,7 +147,7 @@ def create_data_quality_chart(stats: Dict[str, Any]) -> str:
         'responsive': True
     }
     
-    return fig.to_html(full_html=False, include_plotlyjs=False, config=config, div_id="qualityChart")
+    return fig.to_html(full_html=False, include_plotlyjs=False, config=config, div_id="qualityPlot")
 
 
 def create_column_types_chart(stats: Dict[str, Any]) -> str:
@@ -200,7 +200,7 @@ def create_column_types_chart(stats: Dict[str, Any]) -> str:
         'responsive': True
     }
     
-    return fig.to_html(full_html=False, include_plotlyjs=False, config=config, div_id="typesChart")
+    return fig.to_html(full_html=False, include_plotlyjs=False, config=config, div_id="typesPlot")
 
 
 def create_missing_values_chart(stats: Dict[str, Any]) -> str:
@@ -269,4 +269,4 @@ def create_missing_values_chart(stats: Dict[str, Any]) -> str:
         'responsive': True
     }
     
-    return fig.to_html(full_html=False, include_plotlyjs=False, config=config, div_id="missingChart")
+    return fig.to_html(full_html=False, include_plotlyjs=False, config=config, div_id="missingPlot")

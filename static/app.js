@@ -930,18 +930,29 @@ class AutoMLApp {
     }
     
     createFeatureImportanceChart(featureImportance = null, bestModelName = null) {
-        // Use Python-generated chart instead of JavaScript Chart.js
-        const container = document.getElementById('featureImportanceChart');
+        // Use the generic Python chart loader so embedded scripts execute
+        const containerId = 'featureImportanceChart';
+        const container = document.getElementById(containerId);
         if (!container) {
             console.warn('Feature importance container not found');
             return;
         }
-        
-        // Fetch Python-generated chart from backend
         fetch('/feature_importance_chart')
             .then(response => response.text())
             .then(html => {
                 container.innerHTML = html;
+                // Execute embedded Plotly script(s)
+                const scripts = container.querySelectorAll('script');
+                scripts.forEach(script => {
+                    const newScript = document.createElement('script');
+                    if (script.src) {
+                        newScript.src = script.src;
+                    } else {
+                        newScript.textContent = script.textContent;
+                    }
+                    document.head.appendChild(newScript);
+                    setTimeout(() => document.head.removeChild(newScript), 100);
+                });
                 console.log('Feature importance chart loaded from Python backend');
             })
             .catch(error => {

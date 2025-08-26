@@ -74,8 +74,14 @@ class AutoMLComparer(BaseEstimator):
         # Extract best model
         best_model_name, best_metrics = self._find_best_model(results, model_category)
         
-        # Extract feature importance
-        feature_importance = self._extract_feature_importance(X.columns)
+        # Extract feature importance (with fallback for models lacking native importance)
+        feature_importance = self._extract_feature_importance(
+            feature_names=X.columns,
+            best_model_name=best_model_name,
+            X_test=X_test,
+            y_test=y_test,
+            model_category=model_category
+        )
         
         # Format results
         all_results = [{"model": name, "metrics": metrics} for name, metrics in results.items()]
@@ -207,36 +213,65 @@ class AutoMLComparer(BaseEstimator):
         
         return best_name, results[best_name]
     
-    def _extract_feature_importance(self, feature_names: pd.Index) -> Dict[str, Dict[str, float]]:
-        """Extract feature importance from trained models."""
-        feature_importance = {}
-        
+    def _extract_feature_importance(
+        self,
+        feature_names: pd.Index,
+        best_model_name: Optional[str] = None,
+        X_test: Optional[pd.DataFrame] = None,
+        y_test: Optional[pd.Series] = None,
+        model_category: Optional[str] = None,
+    ) -> Dict[str, Dict[str, float]]:
+        """Extract feature importance for trained models with sensible fallbacks.
+
+        - Uses .feature_importances_ or absolute coefficients when available.
+        - Falls back to permutation_importance for the best model if native importance is absent.
+        """
+        feature_importance: Dict[str, Dict[str, float]] = {}
+
+        # Helper to convert array of importances into dict
+        def to_dict(importances: np.ndarray) -> Dict[str, float]:
+            return {str(feature): float(imp) for feature, imp in zip(feature_names, importances)}
+
+        # First, try native importances for all models
         for name, pipeline in self.models_.items():
             try:
-                # Get the actual model from pipeline
                 model = pipeline.named_steps.get('model', pipeline)
-                
                 if hasattr(model, 'feature_importances_'):
-                    importances = model.feature_importances_
+                    feature_importance[name] = to_dict(np.array(model.feature_importances_))
                 elif hasattr(model, 'coef_'):
-                    coefs = model.coef_
-                    # Handle different coefficient shapes
+                    coefs = np.array(model.coef_)
+                    # For multiclass, aggregate over classes
                     if coefs.ndim > 1:
-                        importances = np.abs(coefs[0])
+                        importances = np.mean(np.abs(coefs), axis=0)
                     else:
                         importances = np.abs(coefs)
+                    feature_importance[name] = to_dict(importances)
                 else:
                     feature_importance[name] = {}
-                    continue
-                
-                # Convert to dictionary
-                feature_importance[name] = {
-                    str(feature): safe_json_convert(importance) 
-                    for feature, importance in zip(feature_names, importances)
-                }
-                
             except Exception as e:
                 print(f"Feature importance extraction failed for {name}: {e}")
                 feature_importance[name] = {}
-        
+
+        # If best model has empty importance and we have test data, use permutation importance
+        if best_model_name and best_model_name in self.models_:
+            if not feature_importance.get(best_model_name) and X_test is not None and y_test is not None:
+                try:
+                    from sklearn.inspection import permutation_importance
+                    pipeline = self.models_[best_model_name]
+                    # Use default scoring for estimator; limit repeats for speed
+                    result = permutation_importance(
+                        pipeline, X_test, y_test, n_repeats=5, random_state=42, n_jobs=1
+                    )
+                    importances = getattr(result, 'importances_mean', None)
+                    if importances is None:
+                        try:
+                            importances = result["importances_mean"]  # type: ignore[index]
+                        except Exception:
+                            importances = np.zeros(len(feature_names))
+                    feature_importance[best_model_name] = to_dict(np.array(importances))
+                    print(f"Permutation importance computed for {best_model_name}")
+                except Exception as e:
+                    print(f"Permutation importance failed for {best_model_name}: {e}")
+                    # keep empty dict
+
         return feature_importance
