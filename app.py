@@ -12,6 +12,12 @@ from joblib import dump
 UPLOAD_FOLDER = 'uploads'
 ALLOWED_EXTENSIONS = {'csv', 'xlsx', 'xls'}
 
+# Server-side cache for large data that doesn't fit in session
+app_cache = {
+    'eda_data': {},
+    'training_data': {}
+}
+
 app = Flask(__name__)
 app.secret_key = os.urandom(24)  # Generate random secret key
 app.config['UPLOAD_FOLDER'] = 'uploads'
@@ -31,8 +37,14 @@ def index():
     if request.method == 'POST':
         print("=== FILE UPLOAD STARTED ===")
         
-        # Clear all previous session data when new file is uploaded
+        # Clear all previous session data and cache when new file is uploaded
+        old_session_id = session.get('session_id')
         session.clear()
+        # Clear old cache data if it exists
+        if old_session_id and old_session_id in app_cache['eda_data']:
+            del app_cache['eda_data'][old_session_id]
+        if old_session_id and old_session_id in app_cache['training_data']:
+            del app_cache['training_data'][old_session_id]
         print("Previous session data cleared for new upload")
         
         if 'dataset' not in request.files:
@@ -142,7 +154,13 @@ def process_eda():
         target, ptype = detect_target_and_type(df)
         session['target'], session['ptype'] = target, ptype
         session['columns'] = list(df.columns)
-        session['eda'] = eda  # Store EDA for AJAX
+        
+        # Generate session ID for cache storage of large data
+        if 'session_id' not in session:
+            session['session_id'] = str(uuid.uuid4())
+        
+        # Store EDA in server cache instead of session (to avoid size limits)
+        app_cache['eda_data'][session['session_id']] = eda
         print(f"EDA completed. Target: {target}, Type: {ptype}")
         print(f"EDA stats keys: {list(eda.keys())}")
         print("=== EDA PROCESSING COMPLETED ===")
@@ -273,11 +291,109 @@ def get_feature_importance():
     """AJAX endpoint: returns feature importance data."""
     return jsonify(session.get('feature_importance', {}))
 
+@app.route('/feature_importance_chart', methods=['GET'])
+def get_feature_importance_chart():
+    """Returns feature importance chart generated with Python/Plotly."""
+    try:
+        from ml_utils.charts import create_feature_importance_chart
+        
+        feature_importance = session.get('feature_importance', {})
+        best_model_name = session.get('best_model_name', '')
+        
+        if not feature_importance or not best_model_name:
+            return "<div>No feature importance data available</div>"
+        
+        chart_html = create_feature_importance_chart(feature_importance, best_model_name)
+        return chart_html
+        
+    except Exception as e:
+        return f"<div>Error generating chart: {str(e)}</div>"
+
+@app.route('/performance_chart', methods=['GET'])
+def get_performance_chart():
+    """Returns model performance chart generated with Python/Plotly."""
+    try:
+        from ml_utils.charts import create_model_performance_chart
+        
+        all_results = session.get('history', [])
+        if not all_results:
+            return "<div>No model performance data available</div>"
+        
+        # Convert list format to dict format expected by chart function
+        results_dict = {}
+        for result in all_results:
+            if 'model' in result and 'metrics' in result:
+                results_dict[result['model']] = result['metrics']
+        
+        chart_html = create_model_performance_chart(results_dict)
+        return chart_html
+        
+    except Exception as e:
+        return f"<div>Error generating performance chart: {str(e)}</div>"
+
+@app.route('/quality_chart', methods=['GET'])
+def get_quality_chart():
+    """Returns data quality chart generated with Python/Plotly."""
+    try:
+        from ml_utils.charts import create_data_quality_chart
+        
+        # Get EDA data from server cache instead of session
+        session_id = session.get('session_id')
+        print(f"Quality chart: session_id = {session_id}")
+        eda_data = app_cache['eda_data'].get(session_id, {}) if session_id else {}
+        print(f"Quality chart: eda_data keys = {list(eda_data.keys()) if eda_data else 'None'}")
+        stats = eda_data.get('stats', {}) if eda_data else {}
+        print(f"Quality chart: stats keys = {list(stats.keys()) if stats else 'None'}")
+        
+        chart_html = create_data_quality_chart(stats)
+        print(f"Quality chart: Generated HTML length = {len(chart_html)}")
+        return chart_html
+        
+    except Exception as e:
+        print(f"Quality chart error: {str(e)}")
+        return f"<div>Error generating quality chart: {str(e)}</div>"
+
+@app.route('/types_chart', methods=['GET'])
+def get_types_chart():
+    """Returns column types chart generated with Python/Plotly."""
+    try:
+        from ml_utils.charts import create_column_types_chart
+        
+        # Get EDA data from server cache instead of session
+        session_id = session.get('session_id')
+        eda_data = app_cache['eda_data'].get(session_id, {}) if session_id else {}
+        stats = eda_data.get('stats', {}) if eda_data else {}
+        
+        chart_html = create_column_types_chart(stats)
+        return chart_html
+        
+    except Exception as e:
+        return f"<div>Error generating types chart: {str(e)}</div>"
+
+@app.route('/missing_chart', methods=['GET'])
+def get_missing_chart():
+    """Returns missing values chart generated with Python/Plotly."""
+    try:
+        from ml_utils.charts import create_missing_values_chart
+        
+        # Get EDA data from server cache instead of session
+        session_id = session.get('session_id')
+        eda_data = app_cache['eda_data'].get(session_id, {}) if session_id else {}
+        stats = eda_data.get('stats', {}) if eda_data else {}
+        
+        chart_html = create_missing_values_chart(stats)
+        return chart_html
+        
+    except Exception as e:
+        return f"<div>Error generating missing values chart: {str(e)}</div>"
+
 # New: AJAX endpoint for EDA results
 @app.route('/eda', methods=['GET'])
 def get_eda():
     """AJAX endpoint: returns EDA results as JSON."""
-    eda_data = session.get('eda', {})
+    # Get EDA data from server cache instead of session
+    session_id = session.get('session_id')
+    eda_data = app_cache['eda_data'].get(session_id, {}) if session_id else {}
     print(f"EDA endpoint called. Returning: {bool(eda_data)}")
     if eda_data:
         print(f"EDA data keys: {list(eda_data.keys())}")
@@ -402,6 +518,12 @@ def validate_training_config_endpoint():
             ptype = request.form.get('ptype')
             split_ratio = float(request.form.get('split', 0.8))
         
+        # Validate required parameters
+        if not target:
+            return jsonify({'success': False, 'error': 'Target column is required'})
+        if not ptype:
+            return jsonify({'success': False, 'error': 'Problem type is required'})
+        
         filepath = session.get('filepath')
         if not filepath or not os.path.exists(filepath):
             return jsonify({'success': False, 'error': 'No file found'})
@@ -441,6 +563,12 @@ def debug_session():
 @app.route('/reset_session', methods=['POST'])
 def reset_session():
     """Reset session for debugging."""
+    # Clear cache data for this session
+    old_session_id = session.get('session_id')
+    if old_session_id and old_session_id in app_cache['eda_data']:
+        del app_cache['eda_data'][old_session_id]
+    if old_session_id and old_session_id in app_cache['training_data']:
+        del app_cache['training_data'][old_session_id]
     session.clear()
     return jsonify({'message': 'Session cleared successfully'})
 

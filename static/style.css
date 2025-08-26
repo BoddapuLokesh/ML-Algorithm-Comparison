@@ -18,6 +18,19 @@
   --color-teal-600: rgba(29, 116, 128, 1);
   --color-teal-700: rgba(26, 104, 115, 1);
   --color-teal-800: rgba(41, 150, 161, 1);
+
+/* Python/Plotly Chart Styles */
+.chart-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 300px;
+  background-color: var(--color-gray-200);
+  border: 2px dashed var(--color-gray-300);
+  border-radius: 8px;
+  color: var(--color-gray-400);
+  font-style: italic;
+}
   --color-red-400: rgba(255, 84, 89, 1);
   --color-red-500: rgba(192, 21, 47, 1);
   --color-orange-400: rgba(230, 129, 97, 1);

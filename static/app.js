@@ -371,159 +371,48 @@ class AutoMLApp {
     // Client-side methods removed for efficiency and security
     
     createEDAChartsFromBackend(stats) {
-        // Create data quality chart
-        this.createDataQualityChartFromStats(stats);
-        
-        // Create column types chart
-        this.createColumnTypesChartFromStats(stats);
-        
-        // Create missing values chart
-        this.createMissingValuesChartFromStats(stats);
+        // Create all EDA charts using Python/Plotly backend
+        this.loadPythonChart('/quality_chart', 'qualityChart');
+        this.loadPythonChart('/types_chart', 'typesChart'); 
+        this.loadPythonChart('/missing_chart', 'missingChart');
     }
-    
-    createDataQualityChartFromStats(stats) {
-        const ctx = document.getElementById('qualityChart');
-        if (!ctx) {
-            console.error('Quality chart canvas not found');
+
+    loadPythonChart(endpoint, containerId) {
+        const container = document.getElementById(containerId);
+        if (!container) {
+            console.warn(`Chart container ${containerId} not found`);
             return;
         }
         
-        // Destroy existing chart if any
-        if (this.qualityChartInstance) {
-            this.qualityChartInstance.destroy();
-            this.qualityChartInstance = null;
-        }
-        
-        const totalCells = stats.rows * stats.cols;
-        const totalMissing = Object.values(stats.missing || {}).reduce((a, b) => a + b, 0);
-        const completeCells = totalCells - totalMissing;
-        
-        this.qualityChartInstance = new Chart(ctx.getContext('2d'), {
-            type: 'doughnut',
-            data: {
-                labels: ['Complete Data', 'Missing Values', 'Duplicate Rows'],
-                datasets: [{
-                    data: [
-                        completeCells,
-                        totalMissing,
-                        stats.duplicate_rows || 0
-                    ],
-                    backgroundColor: ['#1FB8CD', '#FFC185', '#B4413C']
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: {
-                        position: 'bottom'
-                    }
-                }
-            }
-        });
+        fetch(endpoint)
+            .then(response => response.text())
+            .then(html => {
+                container.innerHTML = html;
+                console.log(`${containerId} chart loaded from Python backend`);
+                
+                // Manually trigger script execution for Plotly charts
+                const scripts = container.querySelectorAll('script');
+                scripts.forEach(script => {
+                    const newScript = document.createElement('script');
+                    newScript.textContent = script.textContent;
+                    document.head.appendChild(newScript);
+                    setTimeout(() => document.head.removeChild(newScript), 100);
+                });
+            })
+            .catch(error => {
+                console.error(`Error loading ${containerId} chart:`, error);
+                container.innerHTML = `<div>Error loading ${containerId} chart</div>`;
+            });
     }
-    
-    createColumnTypesChartFromStats(stats) {
-        const ctx = document.getElementById('typesChart');
-        if (!ctx) {
-            console.error('Types chart canvas not found');
-            return;
-        }
-        
-        // Destroy existing chart if any
-        if (this.typesChartInstance) {
-            this.typesChartInstance.destroy();
-            this.typesChartInstance = null;
-        }
-        
-        this.typesChartInstance = new Chart(ctx.getContext('2d'), {
-            type: 'bar',
-            data: {
-                labels: ['Numeric', 'Categorical'],
-                datasets: [{
-                    label: 'Number of Columns',
-                    data: [stats.numerics?.length || 0, stats.categoricals?.length || 0],
-                    backgroundColor: ['#1FB8CD', '#FFC185']
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: {
-                        display: false
-                    }
-                },
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        ticks: {
-                            stepSize: 1
-                        }
-                    }
-                }
-            }
-        });
-    }
-    
-    createMissingValuesChartFromStats(stats) {
-        const ctx = document.getElementById('missingChart');
-        if (!ctx) {
-            console.error('Missing chart canvas not found');
-            return;
-        }
-        
-        // Destroy existing chart if any
-        if (this.missingChartInstance) {
-            this.missingChartInstance.destroy();
-            this.missingChartInstance = null;
-        }
-        
-        // Use the correct structure from backend: stats.missing
-        const missing = stats.missing || {};
-        const columns = Object.keys(missing);
-        const missingCounts = columns.map(col => missing[col] || 0);
-        
-        this.missingChartInstance = new Chart(ctx.getContext('2d'), {
-            type: 'bar',
-            data: {
-                labels: columns,
-                datasets: [{
-                    label: 'Missing Values',
-                    data: missingCounts,
-                    backgroundColor: '#B4413C'
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: {
-                        display: false
-                    }
-                },
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        ticks: {
-                            stepSize: 1
-                        }
-                    },
-                    x: {
-                        ticks: {
-                            maxRotation: 45
-                        }
-                    }
-                }
-            }
-        });
-    }
+
+    // Legacy Chart.js functions removed - now using Python/Plotly backend charts
+    // All chart creation is handled by loadPythonChart() method above
 
     // OLD CLIENT-SIDE METHODS REMOVED - Now handled by Python backend for better accuracy and security
     // - calculateDatasetStats() -> Replaced by Python backend analysis  
-    // - createDataQualityChart() -> Replaced by createDataQualityChartFromStats()
-    // - createColumnTypesChart() -> Replaced by createColumnTypesChartFromStats()
-    // - createMissingValuesChart() -> Replaced by createMissingValuesChartFromStats()
+    // - createDataQualityChart() -> Replaced by Python/Plotly charts
+    // - createColumnTypesChart() -> Replaced by Python/Plotly charts
+    // - createMissingValuesChart() -> Replaced by Python/Plotly charts
 
     populateTargetSelection(columns, defaultTarget = null, defaultPtype = null) {
         const targetSelect = document.getElementById('targetSelect');
@@ -994,88 +883,15 @@ class AutoMLApp {
         console.log('Creating charts...');
         // Use setTimeout to ensure DOM is ready
         setTimeout(() => {
-            this.createPerformanceChart();
+            // Load Python-generated performance chart
+            this.loadPythonChart('/performance_chart', 'performanceChart');
             this.createFeatureImportanceChart();
         }, 100);
     }
     
     createPerformanceChart() {
-        console.log('createPerformanceChart called');
-        
-        // Check if Chart.js is available
-        if (typeof Chart === 'undefined') {
-            console.error('Chart.js is not loaded');
-            return;
-        }
-        
-        const chartCanvas = document.getElementById('performanceChart');
-        console.log('Chart canvas:', chartCanvas);
-        console.log('Trained models:', this.trainedModels);
-        
-        if (!chartCanvas) {
-            console.error('Chart canvas not found');
-            return;
-        }
-        
-        if (!this.trainedModels || !this.trainedModels.length) {
-            console.error('No trained models data available');
-            return;
-        }
-
-        // Destroy existing chart if any
-        if (this.performanceChartInstance) {
-            this.performanceChartInstance.destroy();
-            this.performanceChartInstance = null;
-        }
-
-        const ctx = chartCanvas.getContext('2d');
-        
-        // Extract data from trainedModels
-        const labels = this.trainedModels.map(m => m.model || 'Unknown');
-        const data = this.trainedModels.map(m => {
-            // Get primary metric (accuracy for classification, R² for regression)
-            const metrics = m.metrics || {};
-            return metrics.Accuracy || metrics['R^2'] || Object.values(metrics)[0] || 0;
-        });
-        
-        console.log('Chart data:', { labels, data });
-        
-        try {
-            this.performanceChartInstance = new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: labels,
-                    datasets: [{
-                        label: 'Performance Score',
-                        data: data,
-                        backgroundColor: ['#1FB8CD', '#FFC185', '#B4413C', '#ECEBD5', '#5D878F']
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: {
-                            display: false
-                        }
-                    },
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            max: 1
-                        },
-                        x: {
-                            ticks: {
-                                maxRotation: 45
-                            }
-                        }
-                    }
-                }
-            });
-            console.log('Performance chart created successfully');
-        } catch (error) {
-            console.error('Error creating performance chart:', error);
-        }
+        // Performance chart now handled by Python/Plotly backend
+        this.loadPythonChart('/performance_chart', 'performanceChart');
     }
     
     // (Removed earlier duplicate createFeatureImportanceChart; unified optional-param version below)
@@ -1114,23 +930,24 @@ class AutoMLApp {
     }
     
     createFeatureImportanceChart(featureImportance = null, bestModelName = null) {
-        const fi = featureImportance || this.featureImportance;
-        const model = bestModelName || (this.bestModel && this.bestModel.name);
-        const canvas = document.getElementById('featureImportanceChart');
-        if (!fi || !model || !fi[model] || !canvas) {
-            console.warn('No feature importance data available');
+        // Use Python-generated chart instead of JavaScript Chart.js
+        const container = document.getElementById('featureImportanceChart');
+        if (!container) {
+            console.warn('Feature importance container not found');
             return;
         }
-        try {
-            if (this.featureImportanceChartInstance) this.featureImportanceChartInstance.destroy();
-            const importance = fi[model];
-            const sorted = Object.entries(importance).sort((a,b)=>b[1]-a[1]).slice(0,10);
-            this.featureImportanceChartInstance = new Chart(canvas.getContext('2d'), {
-                type: 'bar',
-                data: { labels: sorted.map(d=>d[0]), datasets: [{ label: 'Feature Importance', data: sorted.map(d=>d[1]), backgroundColor: '#1FB8CD', borderColor: '#1FB8CD', borderWidth: 1 }] },
-                options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true } } }
+        
+        // Fetch Python-generated chart from backend
+        fetch('/feature_importance_chart')
+            .then(response => response.text())
+            .then(html => {
+                container.innerHTML = html;
+                console.log('Feature importance chart loaded from Python backend');
+            })
+            .catch(error => {
+                console.error('Error loading feature importance chart:', error);
+                container.innerHTML = '<div>Error loading feature importance chart</div>';
             });
-        } catch (e) { console.error('Error creating feature importance chart:', e); }
     }
     
     downloadModel() {
@@ -1226,7 +1043,8 @@ class AutoMLApp {
         if (bestModelScore) bestModelScore.textContent = '0.850';
         
         // Create charts
-        this.createPerformanceChart();
+        // Load Python-generated performance chart
+        this.loadPythonChart('/performance_chart', 'performanceChart');
         this.createFeatureImportanceChart();
         
         console.log('Test charts created');
