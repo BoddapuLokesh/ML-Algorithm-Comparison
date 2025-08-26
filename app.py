@@ -209,46 +209,54 @@ def train():
         print(f"Data loaded from uploaded file: {df.shape}")
         print(f"Columns: {list(df.columns)}")
         print(f"Target column '{target}' exists: {target in df.columns}")
-        
+
         # Enhanced training validation (moved from JavaScript)
         validation_result = validate_training_config(df, target, ptype, split_ratio)
         if not validation_result['valid']:
             error_message = "; ".join(validation_result['errors'])
             print(f"ERROR: Training validation failed: {error_message}")
             return jsonify({'success': False, 'error': f"Training validation failed: {error_message}"})
-        
+
         if target not in df.columns:
             print(f"ERROR: Target column '{target}' not found in data")
             return jsonify({'success': False, 'error': f"Target column '{target}' not found in data"})
-        
-        models, best_model_name, metrics, feature_importance, all_results, preprocessing_artifacts = train_models(df, target, ptype, split_ratio)
+
+        models, best_model_name, metrics, feature_importance, all_results, preprocessing_artifacts = train_models(
+            df, target, ptype, split_ratio
+        )
         print(f"Training completed. Best model: {best_model_name}")
         print(f"Metrics: {metrics}")
         print(f"Number of models trained: {len(models)}")
-        
+
         # Persist best model with preprocessing artifacts
         model_path = f"{filepath}_bestmodel.joblib"
         preprocessors_path = f"{filepath}_preprocessors.joblib"
-        
+
         # Save the best model and preprocessing artifacts separately
         dump(models[best_model_name], model_path)
         dump(preprocessing_artifacts, preprocessors_path)
-        
+
         session['model_path'] = model_path
         session['preprocessors_path'] = preprocessors_path
         session['best_model_name'] = best_model_name
         session['metrics'] = metrics
-        session['feature_importance'] = feature_importance
-        session['all_results'] = all_results
-        
-        # Clear previous history for this training session and store all results
-        session['history'] = all_results
-        
+
+        # Ensure a session-scoped cache key exists
+        if 'session_id' not in session:
+            session['session_id'] = str(uuid.uuid4())
+
+        # Store larger training artifacts in server-side cache to avoid cookie bloat
+        sid = session['session_id']
+        app_cache['training_data'][sid] = {
+            'feature_importance': feature_importance,
+            'history': all_results
+        }
+
         # Force session save
         session.permanent = True
         session.modified = True
-        
-        print(f"Session data stored. History length: {len(session.get('history', []))}")
+
+        print(f"Session data stored. History length: {len(all_results)}")
         print(f"Best model stored: {session.get('best_model_name')}")
         print(f"Metrics stored: {session.get('metrics')}")
         print("=== TRAINING COMPLETED ===")
@@ -259,12 +267,12 @@ def train():
             'training_results': True,
             'best_model': best_model_name,
             'metrics': metrics,
+            # Return full data in the response for immediate UI rendering
             'feature_importance': feature_importance,
             'all_results': all_results,
             'columns': list(df.drop(columns=[target]).columns),
             'message': f'Training completed! Best model: {best_model_name}'
         })
-        
     except Exception as e:
         print(f"ERROR in training: {str(e)}")
         import traceback
@@ -289,6 +297,11 @@ def get_best_model():
 @app.route('/feature_importance', methods=['GET'])
 def get_feature_importance():
     """AJAX endpoint: returns feature importance data."""
+    # Prefer server-side cache (session cookies can overflow)
+    session_id = session.get('session_id')
+    cached = app_cache['training_data'].get(session_id, {}) if session_id else {}
+    if cached and 'feature_importance' in cached:
+        return jsonify(cached['feature_importance'])
     return jsonify(session.get('feature_importance', {}))
 
 @app.route('/feature_importance_chart', methods=['GET'])
@@ -297,7 +310,10 @@ def get_feature_importance_chart():
     try:
         from ml_utils.charts import create_feature_importance_chart
         
-        feature_importance = session.get('feature_importance', {})
+        # Pull from server cache first
+        session_id = session.get('session_id')
+        cached = app_cache['training_data'].get(session_id, {}) if session_id else {}
+        feature_importance = cached.get('feature_importance', {}) if cached else session.get('feature_importance', {})
         best_model_name = session.get('best_model_name', '')
         
         if not feature_importance or not best_model_name:
@@ -314,8 +330,10 @@ def get_performance_chart():
     """Returns model performance chart generated with Python/Plotly."""
     try:
         from ml_utils.charts import create_model_performance_chart
-        
-        all_results = session.get('history', [])
+        # Prefer server-side cache for training results
+        session_id = session.get('session_id')
+        cached = app_cache['training_data'].get(session_id, {}) if session_id else {}
+        all_results = cached.get('history', []) if cached else session.get('history', [])
         if not all_results:
             return "<div>No model performance data available</div>"
         
@@ -429,6 +447,10 @@ def get_data_preview():
 @app.route('/model_comparison', methods=['GET'])
 def model_comparison():
     """AJAX endpoint: returns all trained model metrics for comparison."""
+    session_id = session.get('session_id')
+    cached = app_cache['training_data'].get(session_id, {}) if session_id else {}
+    if cached and 'history' in cached:
+        return jsonify(cached['history'])
     return jsonify(session.get('history', []))
 
 # New: Enhanced target analysis endpoint (moved from JavaScript)
