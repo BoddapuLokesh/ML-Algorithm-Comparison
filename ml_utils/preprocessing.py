@@ -7,6 +7,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.impute import SimpleImputer
+from scipy import sparse
 
 from .utils import safe_json_convert
 
@@ -30,12 +31,29 @@ def create_preprocessing_pipeline(X: pd.DataFrame) -> ColumnTransformer:
         transformers.append(('num', numeric_transformer, numeric_features))
     
     if categorical_features:
-        # Use OneHotEncoder for better pipeline compatibility
+        # Use OneHotEncoder with max_categories to prevent feature explosion
         from sklearn.preprocessing import OneHotEncoder
-        categorical_transformer = Pipeline(steps=[
-            ('imputer', SimpleImputer(strategy='most_frequent')),
-            ('encoder', OneHotEncoder(drop='first', sparse_output=False, handle_unknown='ignore'))
-        ])
+        try:
+            # Try with max_categories (sklearn >= 1.2)
+            categorical_transformer = Pipeline(steps=[
+                ('imputer', SimpleImputer(strategy='most_frequent')),
+                ('encoder', OneHotEncoder(
+                    drop='first', 
+                    sparse_output=False, 
+                    handle_unknown='ignore',
+                    max_categories=10  # Limit categories per feature to prevent explosion
+                ))
+            ])
+        except TypeError:
+            # Fallback for older sklearn versions
+            categorical_transformer = Pipeline(steps=[
+                ('imputer', SimpleImputer(strategy='most_frequent')),
+                ('encoder', OneHotEncoder(
+                    drop='first', 
+                    sparse_output=False, 
+                    handle_unknown='ignore'
+                ))
+            ])
         transformers.append(('cat', categorical_transformer, categorical_features))
     
     if not transformers:
@@ -62,6 +80,16 @@ def preprocess_data_minimal(df: pd.DataFrame, target: str) -> Tuple[pd.DataFrame
     X = X.dropna(axis=1, how='all')
     print(f"After removing empty columns, X shape: {X.shape}")
     
+    # Check for high cardinality categorical features that might cause explosion
+    categorical_features = X.select_dtypes(include=['object']).columns
+    for col in categorical_features:
+        unique_count = X[col].nunique()
+        if unique_count > 50:  # Arbitrary threshold
+            print(f"Warning: Column '{col}' has {unique_count} unique values, might cause feature explosion")
+            # Convert high cardinality categorical to ordinal encoding
+            le = LabelEncoder()
+            X[col] = le.fit_transform(X[col].astype(str))
+    
     # Handle target encoding if categorical
     target_encoder = None
     if y.dtype == 'object':
@@ -70,19 +98,27 @@ def preprocess_data_minimal(df: pd.DataFrame, target: str) -> Tuple[pd.DataFrame
         y = pd.Series(data=np.array(y_values), index=y.index)
     
     # Create and apply preprocessing pipeline
-    preprocessor = create_preprocessing_pipeline(X)
-    
+    preprocessor = None
     try:
+        preprocessor = create_preprocessing_pipeline(X)
         X_processed = preprocessor.fit_transform(X)
         
-        # Convert back to DataFrame with proper column names
-        feature_names = []
-        for name, transformer, columns in preprocessor.transformers_:
-            if name != 'remainder':
-                feature_names.extend([f"{name}__{col}" for col in columns])
+        # Get correct feature names from the fitted pipeline
+        try:
+            feature_names = list(preprocessor.get_feature_names_out())
+        except AttributeError:
+            # Fallback for older sklearn versions or custom transformers
+            feature_names = [f"feature_{i}" for i in range(X_processed.shape[1])]
+        
+        # Convert sparse matrix to dense if needed
+        if sparse.issparse(X_processed):
+            X_processed = X_processed.toarray()
+        
+        # Ensure it's a numpy array
+        X_processed = np.asarray(X_processed)
         
         X_processed_df = pd.DataFrame(
-            data=np.array(X_processed), 
+            data=X_processed, 
             columns=feature_names,
             index=X.index
         )

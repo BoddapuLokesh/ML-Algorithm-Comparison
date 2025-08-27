@@ -338,11 +338,16 @@
     <script>
         // Set current step from backend if provided
         document.addEventListener('DOMContentLoaded', () => {
-            const currentStep = '{{ current_step if current_step else "upload" }}';
-            if (window.autoMLApp) {
-                window.autoMLApp.currentStep = currentStep;
-                window.autoMLApp.navigateToStep(currentStep);
-            }
+            // Add small delay to ensure autoMLApp is fully initialized
+            setTimeout(() => {
+                const currentStep = '{{ current_step if current_step else "upload" }}';
+                if (window.autoMLApp) {
+                    window.autoMLApp.currentStep = currentStep;
+                    window.autoMLApp.navigateToStep(currentStep);
+                } else {
+                    console.error('AutoMLApp not initialized properly');
+                }
+            }, 100);
         });
     </script>
 {% endblock %}
