@@ -8,6 +8,14 @@ class AutoMLApp {
         this.problemType = null;
         this.trainedModels = [];
         this.bestModel = null;
+        this.featureImportance = null;
+        
+        // Chart instances for cleanup
+        this.qualityChartInstance = null;
+        this.typesChartInstance = null;
+        this.missingChartInstance = null;
+        this.performanceChartInstance = null;
+        this.featureImportanceChartInstance = null;
         
         // Model algorithms from the provided data
         this.algorithms = {
@@ -71,6 +79,7 @@ class AutoMLApp {
             { id: 'viewResultsBtn', handler: () => this.navigateToStep('results') },
             { id: 'backToConfigBtn', handler: () => this.navigateToStep('config') },
             { id: 'resetBtn', handler: this.resetApplication.bind(this) },
+            { id: 'downloadModelBtn', handler: this.downloadModel.bind(this) },
             { id: 'exportResultsBtn', handler: this.exportResults.bind(this) }
         ];
         
@@ -332,8 +341,7 @@ class AutoMLApp {
                 // Navigate to EDA section
                 this.navigateToStep('eda');
                 
-                // Show success message
-                this.showModal('successModal', result.message || 'EDA analysis completed!');
+                // Do not show success modal after EDA (removed per request)
             } else {
                 console.error('EDA processing failed:', result.error);
                 alert('Error processing EDA: ' + result.error);
@@ -371,16 +379,12 @@ class AutoMLApp {
     // Client-side methods removed for efficiency and security
     
     createEDAChartsFromBackend(stats) {
-        // Create data quality chart
+        // Create all EDA charts using Chart.js (JavaScript frontend)
         this.createDataQualityChartFromStats(stats);
-        
-        // Create column types chart
         this.createColumnTypesChartFromStats(stats);
-        
-        // Create missing values chart
         this.createMissingValuesChartFromStats(stats);
     }
-    
+
     createDataQualityChartFromStats(stats) {
         const ctx = document.getElementById('qualityChart');
         if (!ctx) {
@@ -394,8 +398,13 @@ class AutoMLApp {
             this.qualityChartInstance = null;
         }
         
-        const totalCells = stats.rows * stats.cols;
-        const totalMissing = Object.values(stats.missing || {}).reduce((a, b) => a + b, 0);
+        // Calculate data quality metrics
+        const totalRows = stats.rows || 0;
+        const totalCols = stats.cols || 0;
+        const totalCells = totalRows * totalCols;
+        
+        const missing = stats.missing || {};
+        const totalMissing = Object.values(missing).reduce((a, b) => a + b, 0);
         const completeCells = totalCells - totalMissing;
         
         this.qualityChartInstance = new Chart(ctx.getContext('2d'), {
@@ -519,11 +528,7 @@ class AutoMLApp {
         });
     }
 
-    // OLD CLIENT-SIDE METHODS REMOVED - Now handled by Python backend for better accuracy and security
-    // - calculateDatasetStats() -> Replaced by Python backend analysis  
-    // - createDataQualityChart() -> Replaced by createDataQualityChartFromStats()
-    // - createColumnTypesChart() -> Replaced by createColumnTypesChartFromStats()
-    // - createMissingValuesChart() -> Replaced by createMissingValuesChartFromStats()
+    // Chart creation methods using Chart.js for client-side visualization
 
     populateTargetSelection(columns, defaultTarget = null, defaultPtype = null) {
         const targetSelect = document.getElementById('targetSelect');
@@ -994,6 +999,7 @@ class AutoMLApp {
         console.log('Creating charts...');
         // Use setTimeout to ensure DOM is ready
         setTimeout(() => {
+            // Create charts using Chart.js
             this.createPerformanceChart();
             this.createFeatureImportanceChart();
         }, 100);
@@ -1117,20 +1123,61 @@ class AutoMLApp {
         const fi = featureImportance || this.featureImportance;
         const model = bestModelName || (this.bestModel && this.bestModel.name);
         const canvas = document.getElementById('featureImportanceChart');
+        
         if (!fi || !model || !fi[model] || !canvas) {
             console.warn('No feature importance data available');
             return;
         }
+        
         try {
-            if (this.featureImportanceChartInstance) this.featureImportanceChartInstance.destroy();
+            // Destroy existing chart if any
+            if (this.featureImportanceChartInstance) {
+                this.featureImportanceChartInstance.destroy();
+                this.featureImportanceChartInstance = null;
+            }
+            
             const importance = fi[model];
             const sorted = Object.entries(importance).sort((a,b)=>b[1]-a[1]).slice(0,10);
+            
             this.featureImportanceChartInstance = new Chart(canvas.getContext('2d'), {
                 type: 'bar',
-                data: { labels: sorted.map(d=>d[0]), datasets: [{ label: 'Feature Importance', data: sorted.map(d=>d[1]), backgroundColor: '#1FB8CD', borderColor: '#1FB8CD', borderWidth: 1 }] },
-                options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true } } }
+                data: { 
+                    labels: sorted.map(d=>d[0]), 
+                    datasets: [{ 
+                        label: 'Feature Importance', 
+                        data: sorted.map(d=>d[1]), 
+                        backgroundColor: '#1FB8CD', 
+                        borderColor: '#1FB8CD', 
+                        borderWidth: 1 
+                    }] 
+                },
+                options: { 
+                    indexAxis: 'y', 
+                    responsive: true, 
+                    maintainAspectRatio: false, 
+                    plugins: { 
+                        legend: { 
+                            display: false 
+                        } 
+                    }, 
+                    scales: { 
+                        x: { 
+                            beginAtZero: true 
+                        } 
+                    } 
+                }
             });
-        } catch (e) { console.error('Error creating feature importance chart:', e); }
+            console.log('Feature importance chart created successfully');
+        } catch (e) { 
+            console.error('Error creating feature importance chart:', e); 
+        }
+    }
+    
+    downloadModel() {
+        console.log('Downloading model package...');
+        
+        // Use backend download endpoint for complete model package
+        window.location.href = '/download_model';
     }
     
     exportResults() {
@@ -1219,7 +1266,8 @@ class AutoMLApp {
         if (bestModelScore) bestModelScore.textContent = '0.850';
         
         // Create charts
-        this.createPerformanceChart();
+        // Load Python-generated performance chart
+        this.loadPythonChart('/performance_chart', 'performanceChart');
         this.createFeatureImportanceChart();
         
         console.log('Test charts created');

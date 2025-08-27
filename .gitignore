@@ -178,3 +178,12 @@ test_*
 # Logs
 *.log
 logs/
+
+# Project-specific temporary files
+uploads/
+model_utils_*.py
+test_*.py
+*_original.py
+*_optimized.py
+*_new.py
+flask_session/

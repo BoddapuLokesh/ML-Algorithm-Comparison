@@ -117,7 +117,7 @@
                     <div class="card">
                         <div class="card__body">
                             <h3>Data Quality</h3>
-                            <div style="position: relative; height: 300px;">
+                            <div id="qualityChartContainer" style="position: relative; height: 350px;">
                                 <canvas id="qualityChart"></canvas>
                             </div>
                         </div>
@@ -126,7 +126,7 @@
                     <div class="card">
                         <div class="card__body">
                             <h3>Column Types Distribution</h3>
-                            <div style="position: relative; height: 300px;">
+                            <div id="typesChartContainer" style="position: relative; height: 350px;">
                                 <canvas id="typesChart"></canvas>
                             </div>
                         </div>
@@ -135,7 +135,7 @@
                     <div class="card">
                         <div class="card__body">
                             <h3>Missing Values by Column</h3>
-                            <div id="missingValuesChart" style="position: relative; height: 300px;">
+                            <div id="missingChartContainer" style="position: relative; height: 350px;">
                                 <canvas id="missingChart"></canvas>
                             </div>
                         </div>
@@ -271,7 +271,7 @@
                     <div class="card">
                         <div class="card__body">
                             <h3>Model Performance Comparison</h3>
-                            <div style="position: relative; height: 400px;">
+                            <div id="performanceChartContainer" style="position: relative; height: 400px;">
                                 <canvas id="performanceChart"></canvas>
                             </div>
                         </div>
@@ -280,7 +280,7 @@
                     <div class="card">
                         <div class="card__body">
                             <h3>Feature Importance</h3>
-                            <div style="position: relative; height: 400px;">
+                            <div id="featureImportanceContainer" style="position: relative; height: 400px;">
                                 <canvas id="featureImportanceChart"></canvas>
                             </div>
                         </div>
@@ -308,7 +308,10 @@
 
                 <div class="section-actions">
                     <button class="btn btn--secondary" id="backToConfigBtn">Back to Configuration</button>
-                    <button class="btn btn--primary" id="exportResultsBtn">Export Results</button>
+                    <button class="btn btn--primary" id="downloadModelBtn" title="Download complete model package with preprocessors" style="background: #1FB8CD; border-color: #1FB8CD;">
+                         Download Model Package
+                    </button>
+                    <button class="btn btn--secondary" id="exportResultsBtn">Export Results</button>
                 </div>
             </div>
         </div>
@@ -335,11 +338,16 @@
     <script>
         // Set current step from backend if provided
         document.addEventListener('DOMContentLoaded', () => {
-            const currentStep = '{{ current_step if current_step else "upload" }}';
-            if (window.autoMLApp) {
-                window.autoMLApp.currentStep = currentStep;
-                window.autoMLApp.navigateToStep(currentStep);
-            }
+            // Add small delay to ensure autoMLApp is fully initialized
+            setTimeout(() => {
+                const currentStep = '{{ current_step if current_step else "upload" }}';
+                if (window.autoMLApp) {
+                    window.autoMLApp.currentStep = currentStep;
+                    window.autoMLApp.navigateToStep(currentStep);
+                } else {
+                    console.error('AutoMLApp not initialized properly');
+                }
+            }, 100);
         });
     </script>
 {% endblock %}
