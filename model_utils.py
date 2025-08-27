@@ -1,6 +1,8 @@
-"""
-Optimized model_utils.py using minimalistic modular approach.
-Reduces the original 616 lines to ~150 lines while preserving all functionality.
+"""Public API surface bridging Flask views and internal ml_utils modules.
+
+This module preserves the legacy function names while delegating to
+modern implementations in `ml_utils` (EDA, preprocessing, training, etc.).
+It enables drop-in compatibility for the app and templates.
 """
 
 import pandas as pd
@@ -150,3 +152,12 @@ __all__ = [
     'validate_training_config',
     'get_enhanced_eda_stats'
 ]
+
+
+# ---------------------------------------------------------------------------
+# Features implemented in this module
+# - Compatibility wrappers for: perform_eda, detect_target_and_type, preprocess
+# - Orchestration for training via AutoMLComparer (fit_compare)
+# - Validation, EDA stats, data preview HTML, split calculations passthrough
+# - Safe JSON conversion utility re-export
+# ---------------------------------------------------------------------------

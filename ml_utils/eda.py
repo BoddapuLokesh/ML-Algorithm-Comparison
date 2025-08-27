@@ -1,4 +1,8 @@
-"""Minimalistic EDA using pandas built-ins and optimized patterns."""
+"""Exploratory Data Analysis helpers using pandas built-ins.
+
+Produces compact stats, light-weight plot payloads, and capped correlation
+matrices suitable for rendering in the front end.
+"""
 
 import pandas as pd
 import numpy as np
@@ -142,3 +146,12 @@ def get_enhanced_eda_stats_minimal(df: pd.DataFrame) -> Dict[str, Any]:
         'plot_data': basic_eda['plot_data'],
         'correlation_data': basic_eda['correlation_data']
     }
+
+
+# ---------------------------------------------------------------------------
+# Features implemented in this module
+# - perform_eda_minimal: summary stats, dtypes, missingness, duplicates
+# - plot data generation: sampled histograms and top-k category bars
+# - correlation matrix with column cap and truncation flag
+# - enhanced stats: memory usage, type distribution, quality score
+# ---------------------------------------------------------------------------

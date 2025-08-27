@@ -1,7 +1,4 @@
-"""
-Minimalistic ML utilities for algorithm comparison.
-Modernized with sklearn pipelines, type hints, and clean architecture.
-"""
+"""Top-level package exports for minimalistic ML utilities."""
 
 from .config import MLConfig, ModelMetrics, generate_data_preview_html, calculate_split_percentages
 from .preprocessing import create_preprocessing_pipeline, apply_preprocessing_minimal
@@ -24,3 +21,10 @@ __all__ = [
     'generate_data_preview_html',
     'calculate_split_percentages'
 ]
+
+
+# ---------------------------------------------------------------------------
+# Features implemented in this module
+# - Re-export key classes/functions for a stable public API surface
+# - Keeps import sites concise (from ml_utils import AutoMLComparer, ...)
+# ---------------------------------------------------------------------------

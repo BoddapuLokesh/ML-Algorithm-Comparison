@@ -1,7 +1,14 @@
-"""
-Optimized Flask App - Minimalistic approach while preserving 100% functionality
-Reduces code duplication while maintaining all existing routes and behavior
-Original: 602 lines → Optimized: ~280 lines (53% reduction)
+"""Flask application for the AutoML Platform.
+
+Provides routes for:
+- dataset upload and preview
+- EDA processing and retrieval
+- model training, metrics, and comparison
+- target analysis, split calculation, validation
+- exporting results and packaging the best model
+
+Notes:
+- Keeps session-scoped artifacts small by caching heavy data server-side.
 """
 
 import os
@@ -292,4 +299,14 @@ def cleanup_uploads():
 
 if __name__ == "__main__":
     app.run(host='127.0.0.1', port=5002)
+
+
+# ---------------------------------------------------------------------------
+# Features implemented in this module
+# - Flask app setup and session configuration
+# - Routes: upload, EDA, training, metrics, best model, feature importance
+# - Routes: data preview (HTML and JSON), target analysis, split calculation
+# - Routes: training config validation, results export, model download
+# - Utilities: debug session endpoint and upload directory cleanup on exit
+# ---------------------------------------------------------------------------
 

@@ -1,6 +1,9 @@
-"""
-Helper functions and decorators for the Flask app optimization
-Maintains 100% backward compatibility while reducing code duplication
+"""Helpers and decorators used by the Flask AutoML app.
+
+Responsibilities:
+- standardized API responses and input/file guards
+- session-safe caching of EDA and training artifacts
+- central handlers for upload, EDA, and model training
 """
 
 import os
@@ -323,3 +326,14 @@ def handle_training():
         import traceback
         traceback.print_exc()
         return {'success': False, 'error': f'Training failed: {str(e)}'}
+
+
+# ---------------------------------------------------------------------------
+# Features implemented in this module
+# - api_response: JSON envelope + error handling for endpoints
+# - require_file: guard ensuring an uploaded dataset exists
+# - session cache helpers: get/set/clear for eda/training data
+# - file upload handler: validation, preview, dtype inference, session wiring
+# - EDA handler: compute enhanced EDA and store in cache
+# - training handler: validate config, train models, persist artifacts
+# ---------------------------------------------------------------------------

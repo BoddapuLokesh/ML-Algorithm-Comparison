@@ -1,4 +1,8 @@
-"""Modern preprocessing using sklearn pipelines and column transformers."""
+"""Preprocessing pipelines for tabular data.
+
+Provides ColumnTransformer-based pipelines for numeric/categorical features,
+fallback encoders, and helpers to apply saved preprocessors to new data.
+"""
 
 import pandas as pd
 import numpy as np
@@ -8,6 +12,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.impute import SimpleImputer
 from scipy import sparse
+from scipy.sparse import spmatrix
 
 from .utils import safe_json_convert
 
@@ -111,8 +116,17 @@ def preprocess_data_minimal(df: pd.DataFrame, target: str) -> Tuple[pd.DataFrame
             feature_names = [f"feature_{i}" for i in range(X_processed.shape[1])]
         
         # Convert sparse matrix to dense if needed
+        def _to_dense(arr: Any) -> np.ndarray:
+            try:
+                # spmatrix supports .toarray() at runtime; guard with try
+                return arr.toarray()  # type: ignore[attr-defined]
+            except Exception:
+                return np.asarray(arr)
+
         if sparse.issparse(X_processed):
-            X_processed = X_processed.toarray()
+            X_processed = _to_dense(X_processed)
+        elif not isinstance(X_processed, np.ndarray):
+            X_processed = np.asarray(X_processed)
         
         # Ensure it's a numpy array
         X_processed = np.asarray(X_processed)
@@ -189,3 +203,12 @@ def apply_preprocessing_minimal(df: pd.DataFrame, preprocessing_artifacts: Dict[
     else:
         # Fallback to simple preprocessing
         return _simple_preprocessing_fallback(df)
+
+
+# ---------------------------------------------------------------------------
+# Features implemented in this module
+# - Create sklearn ColumnTransformer with imputers, scalers, one-hot encoder
+# - Encode high-cardinality categoricals defensively; label-encode fallback
+# - Provide preprocess -> (X_processed, y, artifacts) and simple fallback
+# - Re-apply stored preprocessing artifacts to incoming data
+# ---------------------------------------------------------------------------

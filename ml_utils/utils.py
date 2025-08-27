@@ -1,43 +1,73 @@
-"""Utility functions for data processing and validation."""
+"""Utility helpers for JSON safety, validation, and target/type detection."""
 
 import numpy as np
 import pandas as pd
-from typing import Union, Dict, Any
+from typing import Union, Dict, Any, Iterable
 
 
-def safe_json_convert(obj) -> Union[int, float, list, Dict[str, Any], str, None]:
-    """Convert numpy types and NaN values to JSON-serializable types.
-    
-    Improved version that doesn't mask missing data with zeros.
+JSONSafe = Union[int, float, list, Dict[str, Any], str, None]
+
+def safe_json_convert(obj: Any) -> JSONSafe:
+    """Convert arbitrary Python/NumPy/pandas objects to JSON-safe values.
+
+    Rules:
+    - numpy scalars/arrays → native ints/floats/lists
+    - NaN/None → None
+    - bytes → utf-8 string (lossy if needed)
+    - mappings/iterables → recursively converted
+    - anything else → str(obj)
     """
+    # NumPy scalar types
     if isinstance(obj, np.integer):
         return int(obj)
-    elif isinstance(obj, np.floating):
-        if np.isnan(obj):
-            return None  # Don't mask missing data
-        return float(obj)
-    elif isinstance(obj, np.ndarray):
+    if isinstance(obj, np.floating):
+        return None if np.isnan(obj) else float(obj)
+
+    # Numpy array-like
+    if isinstance(obj, np.ndarray):
         return obj.tolist()
-    elif hasattr(obj, 'item'):  # numpy scalars
-        return obj.item()
-    elif hasattr(obj, 'tolist'):  # numpy arrays/series
-        return obj.tolist()
-    elif hasattr(obj, '__iter__') and not isinstance(obj, (str, dict)):
-        # Handle iterables like pandas Series, lists
-        try:
-            return [safe_json_convert(item) for item in obj]
-        except:
-            pass
-    
-    # Check for NaN after other type checks to avoid array ambiguity
+
+    # Objects providing .item()/.tolist()
     try:
-        if pd.isna(obj):
-            return None  # Don't mask pandas NaN
-    except (ValueError, TypeError):
-        # pd.isna might fail on some types
+        if hasattr(obj, 'item') and callable(getattr(obj, 'item')):
+            return obj.item()  # type: ignore[no-any-return]
+        if hasattr(obj, 'tolist') and callable(getattr(obj, 'tolist')):
+            return obj.tolist()  # type: ignore[no-any-return]
+    except Exception:
         pass
-    
-    return obj
+
+    # Handle basic scalars and None/NaN
+    if obj is None:
+        return None
+    if isinstance(obj, (str, bytes, int, float, np.generic)):
+        try:
+            if pd.isna(obj):  # type: ignore[arg-type]
+                return None
+        except Exception:
+            pass
+
+    # Bytes → text
+    if isinstance(obj, bytes):
+        try:
+            return obj.decode('utf-8', errors='ignore')
+        except Exception:
+            return str(obj)
+
+    # Dict/mapping → convert keys to str, values recursively
+    if isinstance(obj, dict):
+        return {str(k): safe_json_convert(v) for k, v in obj.items()}
+
+    # Generic iterables (not strings/bytes) → list of converted items
+    if isinstance(obj, Iterable) and not isinstance(obj, (str, bytes)):
+        try:
+            return [safe_json_convert(x) for x in obj]
+        except Exception:
+            return str(obj)
+
+    # Fallback string representation
+    if isinstance(obj, (int, float, str)):
+        return obj
+    return str(obj)
 
 
 def validate_file_upload_minimal(file) -> tuple[bool, str]:
@@ -147,3 +177,12 @@ def validate_training_config_minimal(df: pd.DataFrame, target: str, problem_type
         'valid': len(errors) == 0,
         'errors': errors
     }
+
+
+# ---------------------------------------------------------------------------
+# Features implemented in this module
+# - safe_json_convert: normalize numpy/pandas objects to JSON-safe values
+# - validate_file_upload_minimal: file presence and extension checks
+# - detect_target_and_problem_type: heuristic target + problem type inference
+# - validate_training_config_minimal: guardrails for training inputs
+# ---------------------------------------------------------------------------

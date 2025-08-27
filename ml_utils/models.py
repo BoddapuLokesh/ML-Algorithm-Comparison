@@ -1,4 +1,9 @@
-"""Modern AutoML model comparison using sklearn best practices."""
+"""Model training and comparison utilities.
+
+Trains a small suite of sklearn models for either classification or
+regression using a shared preprocessing pipeline. Computes metrics,
+selects the best model, and extracts feature importance.
+"""
 
 import time
 import numpy as np
@@ -275,3 +280,13 @@ class AutoMLComparer(BaseEstimator):
                     # keep empty dict
 
         return feature_importance
+
+
+# ---------------------------------------------------------------------------
+# Features implemented in this module
+# - AutoMLComparer: orchestrates preprocessing, train/test split, model fits
+# - Metrics: Accuracy/Precision/Recall/F1 for classification; MSE/R2 for reg
+# - Model selection by primary score; training time tracking
+# - Feature importance via native attributes or permutation fallback
+# - Results packaging: best model name, metrics, all model results
+# ---------------------------------------------------------------------------

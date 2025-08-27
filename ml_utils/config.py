@@ -1,4 +1,4 @@
-"""Configuration classes and data structures for ML utilities."""
+"""Configuration and typed result structures for ML utilities."""
 
 import html
 from dataclasses import dataclass
@@ -80,3 +80,12 @@ def calculate_split_percentages(split_ratio: float) -> tuple[int, int]:
     train_percent = int(split_ratio * 100)
     test_percent = 100 - train_percent
     return train_percent, test_percent
+
+
+# ---------------------------------------------------------------------------
+# Features implemented in this module
+# - MLConfig dataclass for training parameters
+# - Typed dictionaries for metrics, EDA results, and training results
+# - HTML-safe data preview generator
+# - Utility to convert split ratio into train/test percentages
+# ---------------------------------------------------------------------------

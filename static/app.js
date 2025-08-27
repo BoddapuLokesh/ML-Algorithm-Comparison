@@ -1,4 +1,6 @@
-// AutoML Application JavaScript
+// AutoML Application UI logic
+// - handles upload, EDA, configuration, training, and results rendering
+// - communicates with Flask endpoints and draws charts/tables
 
 class AutoMLApp {
     constructor() {
@@ -1273,6 +1275,15 @@ class AutoMLApp {
         console.log('Test charts created');
     }
 }
+
+// ---------------------------------------------------------------------------
+// Features implemented in this file
+// - Upload handlers (drag/drop, select) and dataset preview rendering
+// - EDA fetch/render: stats, charts (quality, types, missing, correlation)
+// - Training workflow: config, validation, start, progress, results
+// - Results UI: best model panel, metrics table, performance chart
+// - Export/download actions and app reset utilities
+// ---------------------------------------------------------------------------
 
 // Initialize the application when the DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
