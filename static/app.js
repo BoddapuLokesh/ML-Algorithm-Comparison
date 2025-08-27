@@ -871,7 +871,7 @@ class AutoMLApp {
         
         if (bestModelScore && result.metrics) {
             // Display primary metric based on problem type
-            const primaryMetric = this.problemType === 'regression' ? 'R^2' : 'Accuracy';
+            const primaryMetric = this.problemType === 'regression' ? 'R2' : 'Accuracy';
             const score = result.metrics[primaryMetric];
             if (score !== undefined) {
                 bestModelScore.textContent = `${primaryMetric}: ${(score * 100).toFixed(2)}%`;
@@ -911,7 +911,7 @@ class AutoMLApp {
             if (bestModelScore && bestModel && bestModel.metrics) {
                 // Display primary metric with safe access
                 const metrics = bestModel.metrics || {};
-                const primaryMetric = metrics.Accuracy || metrics['R^2'] || Object.values(metrics)[0] || 0;
+                const primaryMetric = metrics.Accuracy || metrics.R2 || Object.values(metrics)[0] || 0;
                 bestModelScore.textContent = typeof primaryMetric === 'number' ? primaryMetric.toFixed(3) : primaryMetric;
             }
             
@@ -926,7 +926,7 @@ class AutoMLApp {
                     
                     // Safely access metrics with null checks
                     const metrics = entry.metrics || {};
-                    const primaryMetric = metrics.Accuracy || metrics['R^2'] || Object.values(metrics)[0] || 0;
+                    const primaryMetric = metrics.Accuracy || metrics.R2 || Object.values(metrics)[0] || 0;
                     const displayMetric = typeof primaryMetric === 'number' ? primaryMetric.toFixed(3) : primaryMetric;
                     const trainingTime = metrics.Training_Time ? `${metrics.Training_Time}s` : '-';
                     
@@ -1041,7 +1041,7 @@ class AutoMLApp {
         const data = this.trainedModels.map(m => {
             // Get primary metric (accuracy for classification, R² for regression)
             const metrics = m.metrics || {};
-            return metrics.Accuracy || metrics['R^2'] || Object.values(metrics)[0] || 0;
+            return metrics.Accuracy || metrics.R2 || Object.values(metrics)[0] || 0;
         });
         
         console.log('Chart data:', { labels, data });
@@ -1100,7 +1100,7 @@ class AutoMLApp {
             
             if (this.problemType === 'regression') {
                 primaryMetric = 'R²';
-                primaryScore = metrics['R^2'] !== undefined ? metrics['R^2'].toFixed(3) : 'N/A';
+                primaryScore = metrics['R2'] !== undefined ? metrics['R2'].toFixed(3) : 'N/A';
             } else {
                 primaryMetric = 'Accuracy';
                 primaryScore = metrics['Accuracy'] !== undefined ? metrics['Accuracy'].toFixed(3) : 'N/A';
