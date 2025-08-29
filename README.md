@@ -38,7 +38,7 @@ A Flask web app for automated Exploratory Data Analysis (EDA) and quick ML model
 ```bash
 # 1) Clone the repository (replace with your repo URL)
 
-git clone ["$REPO_URL"](https://github.com/BoddapuLokesh/ML-Algorithm-Comparison.git)
+git clone https://github.com/BoddapuLokesh/ML-Algorithm-Comparison.git
 cd ML-Algorithm-Comparison
 
 # 2) Create and activate a virtual environment
@@ -60,8 +60,7 @@ If you already have the folder locally, start from step 2 inside the project dir
 
 ```powershell
 # 1) Clone the repository (replace with your repo URL)
-$REPO_URL = "https://github.com/<your-username>/ML-Algorithm-Comparison.git"
-git clone $REPO_URL
+git clone https://github.com/BoddapuLokesh/ML-Algorithm-Comparison.git
 cd ML-Algorithm-Comparison
 
 # 2) Create and activate a virtual environment
