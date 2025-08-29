@@ -1,120 +1,196 @@
 # ML Algorithm Comparison and Insight Tool
 
-A Flask web app for automated EDA and quick ML model comparison with server‑rendered Plotly charts.
+[![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
+[![Flask](https://img.shields.io/badge/Flask-3.0+-green.svg)](https://flask.palletsprojects.com/)
+[![scikit-learn](https://img.shields.io/badge/scikit--learn-1.4+-orange.svg)](https://scikit-learn.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## Key features
+A Flask web app for automated Exploratory Data Analysis (EDA) and quick ML model comparison, with secure server-rendered previews and exports.
 
-- Upload CSV/XLSX/XLS and get instant EDA: size, dtypes, missingness, duplicate count, memory footprint
-- Smart target detection and problem-type inference (binary/multiclass/classification vs regression)
-- One‑click training and comparison of multiple models:
-  - Classification: Logistic Regression, Random Forest, Gradient Boosting, SVC, Decision Tree
-  - Regression: Linear Regression, Random Forest, Gradient Boosting, SVR, Decision Tree
-- Task‑specific metrics: Accuracy/Precision/Recall/F1 or R²/MSE, plus training time
-- Best model selection, CSV export of all results, and downloadable model package (model + preprocessors)
-- Secure server‑generated data preview and chart HTML (reduced client‑side attack surface)
+## 📋 Table of Contents
 
-## What’s new (Aug 26, 2025)
+- Features
+- Quick Start
+- Installation
+- Usage
+- Project Structure
+- API
+- Supported Algorithms
+- Configuration
+- Troubleshooting
+- Contributing
+- License
+- Changelog
 
-- Switched charting to Python/Plotly rendered on the server and injected as HTML
-  - Endpoints: `/quality_chart`, `/types_chart`, `/missing_chart`, `/feature_importance_chart`, `/performance_chart`
-- Moved validations and analysis from JS to Python for consistency and reliability
-  - Upload/file validation, target analysis, split percentage, training config checks
-  - New/updated endpoints: `/analyze_target`, `/get_data_preview_html`, `/calculate_split`, `/validate_training_config`
-- Improved EDA: memory usage, capped correlations, data‑quality score, JSON‑safe outputs
-- Robust preprocessing: ColumnTransformer (impute+scale numeric; impute+one‑hot categorical), LabelEncoder for target
-- AutoMLComparer: unified pipeline with sensible defaults and timeouts per model; SVM auto‑scales
-- Feature importance with fallbacks: native importances/coefficients or permutation importance for the best model
-- Session hygiene and caching
-  - Large EDA/training artifacts stored in a server‑side in‑process cache keyed by `session_id`
-  - Cookie bloat avoided; session lifetime set to 1h; uploads cleaned up on shutdown
+## 🚀 Features
 
-## Tech stack
+- Automated EDA: dataset size, dtypes, missingness, duplicates, memory usage
+- Smart target detection and problem-type inference (binary/multiclass vs regression)
+- One-click training and comparison across multiple sklearn models
+- Feature importance visualization and downloadable model package (model + preprocessors)
+- CSV export of model comparison results
+- Secure, server-generated HTML for data preview to minimize XSS attack surface
 
-- Backend: Flask, pandas, numpy, scikit‑learn, joblib
-- Visualization: Plotly (server‑rendered HTML snippets; Plotly CDN loaded in layout)
-- Frontend: HTML/CSS/vanilla JS (no framework)
-- File support: pandas + openpyxl (.xlsx) + xlrd 1.2.0 (.xls)
+## 🏃 Quick Start
 
-## Project structure
+### macOS/Linux (zsh) — copy & paste
 
-```
-├── app.py               # Flask routes: upload, EDA, training, charts, exports
-├── model_utils.py       # Backward‑compat API mapping to ml_utils/* modules
-├── ml_utils/
-│   ├── config.py        # MLConfig, typed results, preview HTML helper
-│   ├── models.py        # AutoMLComparer: train/score/select + importance
-│   ├── preprocessing.py # ColumnTransformer pipelines + fallback
-│   ├── eda.py           # Minimal+enhanced EDA and correlations
-│   ├── charts.py        # Plotly chart builders (server‑side)
-│   └── utils.py         # JSON safety, validations, target detection
-├── templates/           # Jinja (layout + index)
-├── static/              # style.css, app.js
-└── requirements.txt     # Python dependencies
-```
+```bash
+# 1) Clone the repository (replace with your repo URL)
+REPO_URL="https://github.com/<your-username>/ML-Algorithm-Comparison.git"
+git clone "$REPO_URL"
+cd ML-Algorithm-Comparison
 
-## Setup
-
-1) Create a virtual environment (macOS/Linux)
-```
-python -m venv .venv
+# 2) Create and activate a virtual environment
+python3 -m venv .venv
 source .venv/bin/activate
-```
-2) Install dependencies
-```
+
+# 3) Install dependencies
+python -m pip install --upgrade pip
 pip install -r requirements.txt
-```
 
-## Run
-
-```
+# 4) Run the application
 python app.py
+# App will start at http://127.0.0.1:5002/
 ```
-Then open http://127.0.0.1:5002/ in your browser.
+
+If you already have the folder locally, start from step 2 inside the project directory.
+
+### Windows (PowerShell)
+
+```powershell
+# 1) Clone the repository (replace with your repo URL)
+$REPO_URL = "https://github.com/<your-username>/ML-Algorithm-Comparison.git"
+git clone $REPO_URL
+cd ML-Algorithm-Comparison
+
+# 2) Create and activate a virtual environment
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+
+# 3) Install dependencies
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+
+# 4) Run the application
+python app.py
+# App will start at http://127.0.0.1:5002/
+```
+
+## 📦 Installation
+
+Prerequisites:
+- Python 3.8+
+- pip
+
+Steps:
+1) Clone the repository
+2) Create and activate a virtual environment
+3) Install dependencies: `pip install -r requirements.txt`
+4) Run the app: `python app.py`
+
+Optional verification:
+```bash
+python -c "import flask, pandas, sklearn; print('Deps OK')"
+```
+
+## 💡 Usage
+
+1) Upload a CSV/XLSX/XLS (max 50MB) to see a safe, server-generated preview
+2) Click Analyze to compute EDA (stats, missingness, correlations)
+3) Choose the target and confirm problem type (auto-detected; you can override)
+4) Start training to compare models; the best model is selected automatically
+5) Review metrics and feature importance; export CSV or download the model package
+
+## 🏗️ Project Structure
+
+```
+ML-Algorithm-Comparison/
+├── app.py                # Flask routes: upload, EDA, training, exports
+├── app_helpers.py        # JSON envelope, guards, upload/EDA/train handlers
+├── model_utils.py        # Back-compat facade to ml_utils/*
+├── ml_utils/
+│   ├── config.py         # MLConfig, typed results, preview HTML
+│   ├── eda.py            # Minimal+enhanced EDA
+│   ├── models.py         # AutoMLComparer (fit, score, select, importance)
+│   ├── preprocessing.py  # ColumnTransformer pipelines + fallback
+│   └── utils.py          # JSON safety, validations, detection
+├── templates/            # Jinja templates (layout/index)
+├── static/               # style.css, app.js
+└── requirements.txt      # Python dependencies
+```
+
+## 📚 API
+
+File upload and EDA
+- POST `/` — Upload dataset (AJAX)
+- POST `/process_eda` — Run EDA and return stats/auto target/type
+- GET `/eda` — EDA JSON (server-side cached)
+- GET `/data_preview` — Preview JSON
+- GET `/get_data_preview_html` — Secure HTML preview
+
+Training and results
+- POST `/validate_training_config` — Validate target/type/split
+- POST `/train` — Train, compare, and return metrics/results/importance
+- GET `/metrics` — Best model metrics
+- GET `/best_model` — Best model name + metrics
+- GET `/model_comparison` — All trained models and metrics
+- GET `/feature_importance` — Feature importance data
+
+Utilities
+- POST `/analyze_target` — Inspect a chosen target column
+- POST `/calculate_split` — Convert split ratio to percentages
+- GET `/download_model` — ZIP: model.joblib + preprocessors.joblib + README
+- GET `/export_results` — CSV export of all models
+- GET `/debug_session` — Inspect session keys (debug)
+- POST `/reset_session` — Clear session/caches (debug)
 
 Notes
-- Max upload size: 50MB; supported: .csv, .xlsx, .xls
-- Secret key is randomized per run; sessions reset when the server restarts
+- JSON shapes vary by endpoint; on errors you’ll receive `{ "success": false, "error": "..." }`.
 
-## Usage workflow
+## 🤖 Supported Algorithms
 
-1) Upload a dataset to see a safe, server‑generated preview
-2) Click “Analyze Dataset” to run EDA and view Plotly charts
-3) Select a target; the app auto‑detects problem type (you can override it)
-4) Validate config and start training; models are compared automatically
-5) Inspect performance and feature importance; export CSV or download the model package
+Classification: Logistic Regression, Random Forest, Gradient Boosting, SVC, Decision Tree
 
-## API endpoints (selected)
+Regression: Linear Regression, Random Forest, Gradient Boosting, SVR, Decision Tree
 
-- Upload/EDA
-  - POST `/` — Upload file (AJAX)
-  - POST `/process_eda` — Run EDA and return stats
-  - GET  `/eda` — EDA JSON
-  - GET  `/data_preview` — Preview JSON
-  - GET  `/get_data_preview_html` — Secure HTML preview
-- Training/results
-  - POST `/validate_training_config` — Validate config
-  - POST `/train` — Train and return metrics/results/importance
-  - GET  `/best_model`, `/metrics`, `/model_comparison`, `/feature_importance`
-- Charts (server‑rendered Plotly)
-  - GET  `/quality_chart`, `/types_chart`, `/missing_chart`
-  - GET  `/feature_importance_chart`, `/performance_chart`
-- Utilities
-  - POST `/analyze_target`, POST `/calculate_split`
-  - GET  `/download_model` (ZIP: model.joblib + preprocessors.joblib + README)
-  - GET  `/export_results` (CSV of all models)
+Metrics
+- Classification: Accuracy, Precision, Recall, F1, Training Time
+- Regression: R², MSE, Training Time
 
-## Security and data handling
+## ⚙️ Configuration
 
-- Server‑side HTML escaping in previews; chart HTML generated on the server
-- In‑process cache for large artifacts; no large blobs in cookies
-- Uploads saved under `uploads/` for the session; removed on shutdown
+Environment (optional)
+```bash
+export FLASK_ENV=development
+export FLASK_DEBUG=1
+```
 
-## Troubleshooting
+Runtime settings
+- Max upload size: 50MB
+- Session lifetime: 1 hour
+- Model timeout (default): 300s per model (see `MLConfig`)
 
-- `.xls` requires `xlrd==1.2.0`; for `.xlsx` only, you can remove xlrd
-- Very large/wide datasets: correlations are capped to reduce memory pressure
-- If a model exceeds the time budget, it’s skipped; consider sampling or simpler models
+Customization
+- Adjust preprocessing or defaults in `ml_utils/*.py`
 
-## License
+## 🔧 Troubleshooting
+
+- `.xls` files require `xlrd==1.2.0` (installed via requirements.txt)
+- Very large/wide datasets: correlations are capped to reduce memory use
+- If a model hits the time budget, it’s skipped; consider sampling or simpler models
+
+## 🤝 Contributing
+
+Small PRs are welcome. Please open an issue first if the change is substantial.
+
+## 📄 License
 
 MIT
+
+## 📝 Changelog
+
+August 2025
+- Server-side preview HTML and consolidated Python validations
+- AutoMLComparer pipelines and improved EDA (memory usage, quality score)
+- Model export (model + preprocessors) and CSV results export
